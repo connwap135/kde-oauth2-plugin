@@ -15,14 +15,14 @@ add_library(kde_oauth2_plugin SHARED
 )
 
 # 设置输出名称（不包含lib前缀）
-set_target_properties(kde_oauth2_plugin PROPERTIES PREFIX "")
+set_target_properties(kde_oauth2_plugin PROPERTIES PREFIX "" OUTPUT_NAME "gzweibo_oauth2_plugin")
 
 target_include_directories(kde_oauth2_plugin PRIVATE src)
 target_link_libraries(kde_oauth2_plugin Qt5::Core Qt5::Network Qt5::Widgets Qt5::Gui KAccounts KF5::I18n)
 
 # 安装插件
 install(TARGETS kde_oauth2_plugin DESTINATION /usr/lib/x86_64-linux-gnu/qt5/plugins/kaccounts/ui)
-install(FILES src/kdeoauth2plugin.json DESTINATION /usr/lib/x86_64-linux-gnu/qt5/plugins/kaccounts/ui RENAME kde_oauth2_plugin.so.json)
+install(FILES src/kdeoauth2plugin.json DESTINATION /usr/lib/x86_64-linux-gnu/qt5/plugins/kaccounts/ui RENAME gzweibo_oauth2_plugin.so.json)
 
 # 安装 KDE Online Accounts 配置文件
 install(FILES gzweibo-oauth2.provider DESTINATION /usr/share/accounts/providers/kde)

@@ -349,25 +349,23 @@ void OAuth2Dialog::onCancel()
     reject();
 }
 
-// KDEOAuth2Plugin 实现 (支持从provider文件读取配置)
+// KDEOAuth2Plugin 实现 (支持从环境变量读取配置)
 KDEOAuth2Plugin::KDEOAuth2Plugin(QObject *parent)
     : KAccountsUiPlugin(parent)
     , m_networkManager(nullptr)
-    , m_serverUrl("http://192.168.1.12:9007")  // 默认值，可被provider配置覆盖
-    , m_clientId("10001")                       // 默认值，可被provider配置覆盖
-    , m_authPath("/connect/authorize")          // 默认值，可被provider配置覆盖
-    , m_tokenPath("/connect/token")             // 默认值，可被provider配置覆盖
-    , m_userInfoPath("/connect/userinfo")       // 默认值，可被provider配置覆盖
-    , m_redirectUri("http://localhost:8080/callback")  // 默认值，可被provider配置覆盖
-    , m_scope("openid profile")                 // 默认值，可被provider配置覆盖
-    , m_scope("openid profile")                 // 默认值，可被provider配置覆盖
+    , m_serverUrl("http://192.168.1.12:9007")  // 默认值，可被环境变量覆盖
+    , m_clientId("10001")                       // 默认值，可被环境变量覆盖
+    , m_authPath("/connect/authorize")          // 默认值，可被环境变量覆盖
+    , m_tokenPath("/connect/token")             // 默认值，可被环境变量覆盖
+    , m_userInfoPath("/connect/userinfo")       // 默认值，可被环境变量覆盖
+    , m_redirectUri("http://localhost:8080/callback")  // 默认值，可被环境变量覆盖
+    , m_scope("openid profile")                 // 默认值，可被环境变量覆盖
 {
     qDebug() << "KDEOAuth2Plugin: Constructor called";
     m_networkManager = new QNetworkAccessManager(this);
     
-    // TODO: 从provider配置中读取参数
-    // 这需要访问KAccounts的配置系统
-    loadProviderConfiguration();
+    // 从环境变量加载配置
+    loadConfigurationFromEnvironment();
 }
 
 KDEOAuth2Plugin::~KDEOAuth2Plugin()
@@ -722,6 +720,57 @@ void KDEOAuth2Plugin::createAccountWithBasicInfo()
     
     qDebug() << "KDEOAuth2Plugin: creating basic account with display name:" << displayName;
     emit success(displayName, "", authData);
+}
+
+void KDEOAuth2Plugin::loadConfigurationFromEnvironment()
+{
+    qDebug() << "KDEOAuth2Plugin: loading configuration from environment variables...";
+    
+    QString configServer = qEnvironmentVariable("OAUTH2_SERVER_URL");
+    QString configClientId = qEnvironmentVariable("OAUTH2_CLIENT_ID");
+    QString configAuthPath = qEnvironmentVariable("OAUTH2_AUTH_PATH");
+    QString configTokenPath = qEnvironmentVariable("OAUTH2_TOKEN_PATH");
+    QString configUserInfoPath = qEnvironmentVariable("OAUTH2_USERINFO_PATH");
+    QString configRedirectUri = qEnvironmentVariable("OAUTH2_REDIRECT_URI");
+    QString configScope = qEnvironmentVariable("OAUTH2_SCOPE");
+    
+    if (!configServer.isEmpty()) {
+        m_serverUrl = configServer;
+        qDebug() << "KDEOAuth2Plugin: loaded server URL from config:" << m_serverUrl;
+    }
+    
+    if (!configClientId.isEmpty()) {
+        m_clientId = configClientId;
+        qDebug() << "KDEOAuth2Plugin: loaded client ID from config:" << m_clientId;
+    }
+    
+    if (!configAuthPath.isEmpty()) {
+        m_authPath = configAuthPath;
+        qDebug() << "KDEOAuth2Plugin: loaded auth path from config:" << m_authPath;
+    }
+    
+    if (!configTokenPath.isEmpty()) {
+        m_tokenPath = configTokenPath;
+        qDebug() << "KDEOAuth2Plugin: loaded token path from config:" << m_tokenPath;
+    }
+    
+    if (!configUserInfoPath.isEmpty()) {
+        m_userInfoPath = configUserInfoPath;
+        qDebug() << "KDEOAuth2Plugin: loaded userinfo path from config:" << m_userInfoPath;
+    }
+    
+    if (!configRedirectUri.isEmpty()) {
+        m_redirectUri = configRedirectUri;
+        qDebug() << "KDEOAuth2Plugin: loaded redirect URI from config:" << m_redirectUri;
+    }
+    
+    if (!configScope.isEmpty()) {
+        m_scope = configScope;
+        qDebug() << "KDEOAuth2Plugin: loaded scope from config:" << m_scope;
+    }
+    
+    qDebug() << "KDEOAuth2Plugin: final configuration - Server:" << m_serverUrl 
+             << "Client ID:" << m_clientId << "Redirect URI:" << m_redirectUri;
 }
 
 void KDEOAuth2Plugin::loadProviderConfiguration()

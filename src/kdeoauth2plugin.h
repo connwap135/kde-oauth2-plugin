@@ -91,6 +91,8 @@ private:
     QString generateAuthUrl() const;
     void createAccountWithBasicInfo();
     void loadProviderConfiguration();  // 从provider文件加载配置
+    void loadConfigurationFromEnvironment();  // 从环境变量加载配置
+    void loadFallbackConfiguration();  // 使用默认配置
     
     QString m_providerName;
     QNetworkAccessManager *m_networkManager;
