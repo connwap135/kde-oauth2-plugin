@@ -437,7 +437,80 @@ async function main() {
 main();
 ```
 
-## 技术实现
+## 🔧 配置管理
+
+### Provider文件与插件参数绑定
+
+**重要说明**: Provider文件和插件代码中的参数必须保持一致！
+
+#### 当前架构问题
+- ❌ **参数重复**: 相同的OAuth2配置在两个地方定义
+- ❌ **维护困难**: 修改配置需要同时更新provider文件和代码
+- ❌ **扩展性差**: 不支持多个不同的OAuth2服务器
+
+#### 推荐解决方案
+
+##### 1. 统一配置源
+让provider文件成为唯一的配置源，插件代码从provider文件中读取配置：
+
+```xml
+<!-- gzweibo-oauth2.provider -->
+<template>
+    <group name="oauth2">
+        <setting name="server_url">http://192.168.1.12:9007</setting>
+        <setting name="client_id">10001</setting>
+        <setting name="auth_path">/connect/authorize</setting>
+        <!-- ... 其他配置 -->
+    </group>
+</template>
+```
+
+##### 2. 插件代码配置加载
+```cpp
+void KDEOAuth2Plugin::loadProviderConfiguration() {
+    // 从KAccounts配置系统中读取provider参数
+    // 替代当前的硬编码参数
+}
+```
+
+##### 3. 环境变量覆盖（临时方案）
+使用环境变量进行配置覆盖：
+
+```bash
+# 加载配置
+source oauth2_config.env
+
+# 构建时使用配置
+./build_deb.sh
+```
+
+#### 配置参数对照表
+
+| Provider文件 | 插件代码变量 | 环境变量 | 说明 |
+|-------------|-------------|---------|-----|
+| Host | m_serverUrl | OAUTH2_SERVER_URL | OAuth2服务器地址 |
+| ClientId | m_clientId | OAUTH2_CLIENT_ID | 客户端ID |
+| AuthPath | m_authPath | OAUTH2_AUTH_PATH | 授权端点路径 |
+| TokenPath | m_tokenPath | OAUTH2_TOKEN_PATH | 令牌端点路径 |
+| UserInfoPath | m_userInfoPath | OAUTH2_USERINFO_PATH | 用户信息端点路径 |
+| RedirectUri | m_redirectUri | OAUTH2_REDIRECT_URI | 回调URI |
+| Scope | m_scope | OAUTH2_SCOPE | 权限范围 |
+
+### 最佳实践
+
+1. **保持一致性**: provider文件和插件代码中的参数必须完全匹配
+2. **单一配置源**: 优先使用provider文件作为配置源
+3. **向后兼容**: 保留默认值以确保向后兼容
+4. **文档同步**: 更新配置时同步更新相关文档
+
+### 故障排除
+
+如果遇到配置相关问题：
+
+1. 检查provider文件和插件代码中的参数是否一致
+2. 验证回调URI是否正确（包含完整路径）
+3. 确认服务器端点配置是否匹配
+4. 查看插件日志中的配置加载信息
 
 ### 插件架构
 
