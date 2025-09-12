@@ -412,6 +412,14 @@ void KDEOAuth2Plugin::startOAuth2Flow()
     qDebug() << "KDEOAuth2Plugin: starting OAuth2 authentication flow";
     
     QString authUrl = generateAuthUrl();
+    QUrl urlCheck(authUrl);
+    if (!urlCheck.isValid() || urlCheck.scheme().isEmpty() || urlCheck.host().isEmpty()) {
+        QMessageBox::critical(nullptr, "OAuth2配置错误", QString("生成的认证URL无效：%1\n请联系开发人员检查OAuth2配置。").arg(authUrl));
+        qDebug() << "KDEOAuth2Plugin: Invalid authUrl generated:" << authUrl;
+        emit canceled();
+        return;
+    }
+    
     qDebug() << "KDEOAuth2Plugin: generated auth URL:" << authUrl;
     
     // 创建OAuth2认证对话框，传递重定向URI
@@ -491,13 +499,15 @@ void KDEOAuth2Plugin::onTokenRequestFinished()
     
     QJsonDocument doc = QJsonDocument::fromJson(data);
     QJsonObject obj = doc.object();
-    
     if (obj.contains("access_token")) {
         m_currentAccessToken = obj["access_token"].toString();
         if (obj.contains("refresh_token")) {
             m_currentRefreshToken = obj["refresh_token"].toString();
         }
-        
+        if (obj.contains("expires_in")) {
+            m_currentExpiresIn = obj["expires_in"].toInt();
+            qDebug() << "KDEOAuth2Plugin: expires_in received:" << m_currentExpiresIn;
+        }
         qDebug() << "KDEOAuth2Plugin: successfully obtained access token";
         fetchUserInfo(m_currentAccessToken);
     } else {
@@ -570,6 +580,9 @@ void KDEOAuth2Plugin::onUserInfoRequestFinished()
     authData["access_token"] = m_currentAccessToken;
     if (!m_currentRefreshToken.isEmpty()) {
         authData["refresh_token"] = m_currentRefreshToken;
+    }
+    if (m_currentExpiresIn > 0) {
+        authData["expires_in"] = m_currentExpiresIn;
     }
     
     // 智能提取用户信息 - 支持多种常见字段名和.NET Claims格式

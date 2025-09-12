@@ -199,5 +199,4 @@ def main():
         sys.exit(1)
 
 if __name__ == "__main__":
-    main()</content>
-<parameter name="filePath">/home/ubuntu/kde-oauth2-plugin/quick_oauth2_test.py
+    main()

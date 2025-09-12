@@ -14,7 +14,7 @@
             <setting name="mechanism">user_agent</setting>
             <group name="oauth2">
                 <group name="user_agent">
-                    <setting name="Host">192.168.1.12:9007</setting>
+                    <setting name="Host">http://192.168.1.12:9007</setting>
                     <setting name="AuthPath">/connect/authorize</setting>
                     <setting name="TokenPath">/connect/token</setting>
                     <setting name="UserInfoPath">/connect/userinfo</setting>

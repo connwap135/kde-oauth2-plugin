@@ -109,5 +109,6 @@ private:
     // 当前认证状态
     QString m_currentAccessToken;
     QString m_currentRefreshToken;
+    int m_currentExpiresIn = 0;
     QVariantMap m_currentUserInfo;
 };
