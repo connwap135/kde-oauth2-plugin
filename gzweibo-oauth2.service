@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<service id="gzweibo-oauth2-service">
+  <type>oauth2</type>
+  <name>gzweibo OAuth2 Service</name>
+  <icon>applications-internet</icon>
+  <description>gzweibo OAuth2 authentication service for API access</description>
+  <translations>gzweibo-oauth2</translations>
+  <provider>gzweibo-oauth2</provider>
+  <template>
+    <group name="auth">
+      <setting name="method">oauth2</setting>
+      <setting name="mechanism">user_agent</setting>
+    </group>
+  </template>
+</service>

@@ -1,0 +1,162 @@
+# KDE OAuth2 Plugin - Git Ignore File
+
+## Build artifacts and directories
+build/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.so
+*.so.*
+*.a
+*.o
+*.d
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+ui_*.h
+
+## Qt Creator
+*.pro.user
+*.pro.user.*
+*.qbs.user
+*.qbs.user.*
+*.qws
+*.qwc
+*.qct
+
+## Qt Designer
+*.qmlproject.user
+*.qmlproject.user.*
+
+## KDE specific
+.kde/
+.kde4/
+.cache/
+.config/
+.local/
+.share/
+
+## DEB packaging
+*.deb
+debian/*.debhelper
+debian/*.log
+debian/*.substvars
+debian/files
+debian/tmp/
+
+## Development artifacts
+*.swp
+*.swo
+*~
+*.tmp
+*.bak
+*.orig
+*.rej
+
+## IDEs
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.kdevelop/
+.kdev4/
+
+## OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*~
+
+## Logs and debug files
+*.log
+*.debug
+debug.log
+error.log
+kaccounts_debug.log
+monitor_plugin_logs.sh
+
+## Temporary files
+tmp/
+temp/
+.cache/
+*.tmp
+
+## Database files (if any local copies)
+*.db
+*.sqlite
+*.sqlite3
+
+## Sensitive files
+secrets.json
+config.local.json
+.env
+.env.local
+
+## Test artifacts
+test_output/
+test_results/
+coverage/
+
+## Documentation build
+docs/_build/
+*.pdf
+*.html
+
+## Backup files
+*.backup
+*.old
+*.orig
+
+## Package management
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+## Distribution files
+dist/
+*.tar.gz
+*.zip
+
+## Custom ignore patterns for this project
+# Ignore any local configuration files
+local_config.*
+# Ignore test databases
+test_*.db
+# Ignore generated documentation
+generated_docs/
+
+## KDE Online Accounts specific
+# Ignore local account databases (don't commit real credentials)
+.config/libaccounts-glib/
+# Ignore KDE cache files
+.cache/ksycoca*
+
+## Plugin specific
+# Ignore compiled plugin files in source directory
+src/*.so
+src/*.so.*
+# Ignore generated MOC files in source
+src/moc_*
+src/*_autogen/
+
+## Build scripts output
+gzweibo-oauth2-plugin_*.deb
+custom-oauth2-plugin_*.deb
+
+## Final note
+# This .gitignore is designed for KDE/Qt development
+# Review before committing to ensure no important files are ignored

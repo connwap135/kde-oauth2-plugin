@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<service id="gzweibo-oauth2-email">
+  <type>e-mail</type>
+  <name>gzweibo OAuth2 Email</name>
+  <icon>mail-message</icon>
+  <description>Email service using gzweibo OAuth2 authentication</description>
+  <translations>gzweibo-oauth2</translations>
+  <provider>gzweibo-oauth2</provider>
+  <template>
+    <group name="auth">
+      <setting name="method">oauth2</setting>
+      <setting name="mechanism">user_agent</setting>
+    </group>
+  </template>
+</service>

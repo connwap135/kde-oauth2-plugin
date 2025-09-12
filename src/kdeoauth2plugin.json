@@ -1,0 +1,21 @@
+{
+    "KPlugin": {
+        "Name": "gzweibo OAuth2 Plugin",
+        "Description": "A custom OAuth2 provider for KAccounts",
+        "Version": "1.0",
+        "Authors": [
+            {
+                "Name": "宋小康",
+                "Email": "connwap135@vip.qq.com"
+            }
+        ],
+        "ServiceTypes": [
+            "KAccounts/UiPlugin"
+        ],
+        "Category": "Accounts",
+        "EnabledByDefault": true,
+        "Icon": "dialog-password",
+        "Id": "org.kde.kaccounts.oauth2",
+        "License": "GPL"
+    }
+}

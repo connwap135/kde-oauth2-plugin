@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<provider id="gzweibo-oauth2">
+    <name>gzweibo OAuth2 Server</name>
+    <icon>applications-internet</icon>
+    <description>gzweibo OAuth2 authentication provider</description>
+    <translations>kaccounts-providers</translations>
+    <plugin>gzweibo_oauth2_plugin</plugin>
+    <domains>192.168.1.12</domains>
+    <single-account>false</single-account>
+    
+    <template>
+        <group name="auth">
+            <setting name="method">oauth2</setting>
+            <setting name="mechanism">user_agent</setting>
+            <group name="oauth2">
+                <group name="user_agent">
+                    <setting name="Host">192.168.1.12:9007</setting>
+                    <setting name="AuthPath">/connect/authorize</setting>
+                    <setting name="TokenPath">/connect/token</setting>
+                    <setting name="UserInfoPath">/connect/userinfo</setting>
+                    <setting name="ClientId">10001</setting>
+                    <setting name="RedirectUri">http://localhost:8080</setting>
+                    <setting name="ResponseType">code</setting>
+                    <setting name="Scope">openid profile</setting>
+                </group>
+            </group>
+        </group>
+    </template>
+</provider>
