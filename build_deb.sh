@@ -114,7 +114,7 @@ Version: ${VERSION}
 Section: kde
 Priority: optional
 Architecture: ${ARCHITECTURE}
-Depends: libqt5core5a, libqt5network5, libqt5widgets5, libqt5gui5, libkaccounts2, libkf5i18n5
+Depends: libqt5core5t64, libqt5network5t64, libqt5widgets5t64, libqt5gui5t64, libkaccounts2, libkf5i18n5
 Maintainer: KDE OAuth2 Plugin Developer <developer@example.com>
 Description: KDE Online Accounts OAuth2 Plugin
  A custom OAuth2 authentication plugin for KDE Online Accounts system.
