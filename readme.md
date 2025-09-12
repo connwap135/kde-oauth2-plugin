@@ -437,7 +437,148 @@ async function main() {
 main();
 ```
 
-## 🔧 配置管理
+## � 其他应用集成指南
+
+如果您是开发者，想要在您的应用程序中使用KDE OAuth2插件存储的凭证，请参考以下集成指南：
+
+### 📖 完整集成指南
+
+我们提供了详细的集成指南文档：
+
+```bash
+# 查看完整集成指南
+cat OAUTH2_INTEGRATION_GUIDE.md
+```
+
+该指南包含：
+- ✅ 多种编程语言的集成示例（Python、Node.js、Shell）
+- ✅ 安全注意事项和最佳实践
+- ✅ 错误处理和故障排除
+- ✅ 完整的工作示例代码
+
+### 🧪 快速测试工具
+
+#### 1. Python测试脚本
+
+```bash
+# 基本凭证信息
+python3 oauth2_credentials.py
+
+# 测试令牌有效性
+python3 oauth2_credentials.py --test
+
+# JSON格式输出
+python3 oauth2_credentials.py --json
+
+# 列出所有账户
+python3 oauth2_credentials.py --list
+```
+
+#### 2. Shell脚本工具
+
+```bash
+# 获取基本信息
+./get_oauth_token.sh
+
+# 显示完整令牌（注意安全）
+./get_oauth_token.sh --full
+
+# 导出环境变量
+source <(./get_oauth_token.sh --export)
+```
+
+#### 3. API调用演示
+
+```bash
+# 设置环境变量后运行演示
+source <(./get_oauth_token.sh --export)
+./oauth2_api_demo.sh
+```
+
+### 💻 快速集成示例
+
+#### Python应用集成
+
+```python
+#!/usr/bin/env python3
+import sqlite3
+import os
+
+def get_oauth2_credentials():
+    """获取OAuth2凭证"""
+    db_path = os.path.expanduser("~/.config/libaccounts-glib/accounts.db")
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    # 获取最新账户
+    cursor.execute(
+        "SELECT id FROM Accounts WHERE provider='gzweibo-oauth2' AND enabled=1 ORDER BY id DESC LIMIT 1"
+    )
+    account_id = cursor.fetchone()[0]
+
+    # 获取凭证
+    cursor.execute("SELECT key, value FROM Settings WHERE account=?", (account_id,))
+    credentials = dict(cursor.fetchall())
+
+    conn.close()
+
+    # 清理字符串
+    for key in credentials:
+        value = credentials[key]
+        if isinstance(value, str) and value.startswith("'") and value.endswith("'"):
+            credentials[key] = value[1:-1]
+
+    return credentials
+
+# 使用示例
+creds = get_oauth2_credentials()
+access_token = creds['access_token']
+server = creds['server']
+
+# 调用API
+import requests
+headers = {'Authorization': f'Bearer {access_token}'}
+response = requests.get(f'{server}/connect/userinfo', headers=headers)
+print(response.json())
+```
+
+#### Shell脚本集成
+
+```bash
+#!/bin/bash
+
+# 获取访问令牌
+ACCESS_TOKEN=$(sqlite3 ~/.config/libaccounts-glib/accounts.db \
+    "SELECT value FROM Settings WHERE account=12 AND key='access_token'" | \
+    sed "s/^'//;s/'$//")
+
+SERVER=$(sqlite3 ~/.config/libaccounts-glib/accounts.db \
+    "SELECT value FROM Settings WHERE account=12 AND key='server'" | \
+    sed "s/^'//;s/'$//")
+
+# 调用API
+curl -H "Authorization: Bearer $ACCESS_TOKEN" \
+     -H "Content-Type: application/json" \
+     "$SERVER/connect/userinfo"
+```
+
+### 🔐 安全注意事项
+
+1. **令牌保护**: 不要在日志中记录完整的access_token
+2. **HTTPS使用**: 生产环境建议使用HTTPS
+3. **令牌刷新**: 定期检查令牌过期时间并刷新
+4. **权限控制**: 根据用户角色控制API访问权限
+
+### 📞 获取帮助
+
+如果您在集成过程中遇到问题：
+
+1. 运行测试脚本验证配置：`python3 oauth2_credentials.py --test`
+2. 查看详细日志：`export QT_LOGGING_RULES="kaccounts.debug=true"`
+3. 参考完整指南：`OAUTH2_INTEGRATION_GUIDE.md`
+4. 检查KDE账户状态：`ag-tool list-accounts`
+
+## �🔧 配置管理
 
 ### Provider文件与插件参数绑定
 
