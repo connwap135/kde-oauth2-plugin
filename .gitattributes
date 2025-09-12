@@ -1,0 +1,23 @@
+# KDE OAuth2 Plugin - Git Attributes
+
+## Text files should use LF line endings
+*.md text eol=lf
+*.txt text eol=lf
+*.sh text eol=lf
+*.cpp text eol=lf
+*.h text eol=lf
+*.json text eol=lf
+*.cmake text eol=lf
+*.service text eol=lf
+*.provider text eol=lf
+
+## Binary files
+*.so binary
+*.a binary
+*.deb binary
+*.pdf binary
+
+## Language detection
+*.cmake linguist-language=CMake
+*.service linguist-language=Systemd
+*.provider linguist-language=XML
