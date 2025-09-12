@@ -12,6 +12,8 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QHostAddress>
+#include <QFile>
+#include <QXmlStreamReader>
 
 // 本地HTTP服务器类，用于捕获OAuth2回调
 class CallbackServer : public QTcpServer
@@ -364,7 +366,9 @@ KDEOAuth2Plugin::KDEOAuth2Plugin(QObject *parent)
     qDebug() << "KDEOAuth2Plugin: Constructor called";
     m_networkManager = new QNetworkAccessManager(this);
     
-    // 从环境变量加载配置
+    // 优先从provider文件加载配置
+    loadProviderConfiguration();
+    // 再从环境变量加载配置（可覆盖provider配置）
     loadConfigurationFromEnvironment();
 }
 
@@ -775,14 +779,81 @@ void KDEOAuth2Plugin::loadConfigurationFromEnvironment()
 
 void KDEOAuth2Plugin::loadProviderConfiguration()
 {
-    // TODO: 实现从provider文件读取配置的逻辑
-    // 这是一个示例实现，实际需要使用KAccounts的配置API
-    
     qDebug() << "KDEOAuth2Plugin: loading provider configuration...";
-    
-    // 示例：如何从环境变量或配置文件读取（临时方案）
-    // 实际应该从KAccounts的provider配置中读取
-    
+
+    // 优先查找系统 provider 路径
+    QString providerFile = "/usr/share/accounts/providers/kde/gzweibo-oauth2.provider";
+    QFile file(providerFile);
+    if (!file.exists()) {
+        // 回退到本地工作目录
+        providerFile = "gzweibo-oauth2.provider";
+        file.setFileName(providerFile);
+    }
+    if (file.exists() && file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QXmlStreamReader xml(&file);
+        // 递归进入 group: auth → oauth2 → user_agent
+        while (!xml.atEnd()) {
+            xml.readNext();
+            if (xml.isStartElement() && xml.name() == "group" && xml.attributes().value("name") == "auth") {
+                // 进入 auth 层
+                while (!xml.atEnd()) {
+                    xml.readNext();
+                    if (xml.isStartElement() && xml.name() == "group" && xml.attributes().value("name") == "oauth2") {
+                        // 进入 oauth2 层
+                        while (!xml.atEnd()) {
+                            xml.readNext();
+                            if (xml.isStartElement() && xml.name() == "group" && xml.attributes().value("name") == "user_agent") {
+                                // 进入 user_agent 层
+                                while (!xml.atEnd()) {
+                                    xml.readNext();
+                                    if (xml.isStartElement() && xml.name() == "setting") {
+                                        QString name = xml.attributes().value("name").toString();
+                                        QString value = xml.readElementText();
+                                        if (name == "Host") {
+                                            m_serverUrl = value;
+                                            qDebug() << "KDEOAuth2Plugin: loaded Host from provider:" << m_serverUrl;
+                                        } else if (name == "AuthPath") {
+                                            m_authPath = value;
+                                            qDebug() << "KDEOAuth2Plugin: loaded AuthPath from provider:" << m_authPath;
+                                        } else if (name == "TokenPath") {
+                                            m_tokenPath = value;
+                                            qDebug() << "KDEOAuth2Plugin: loaded TokenPath from provider:" << m_tokenPath;
+                                        } else if (name == "UserInfoPath") {
+                                            m_userInfoPath = value;
+                                            qDebug() << "KDEOAuth2Plugin: loaded UserInfoPath from provider:" << m_userInfoPath;
+                                        } else if (name == "ClientId") {
+                                            m_clientId = value;
+                                            qDebug() << "KDEOAuth2Plugin: loaded ClientId from provider:" << m_clientId;
+                                        } else if (name == "RedirectUri") {
+                                            m_redirectUri = value;
+                                            qDebug() << "KDEOAuth2Plugin: loaded RedirectUri from provider:" << m_redirectUri;
+                                        } else if (name == "Scope") {
+                                            m_scope = value;
+                                            qDebug() << "KDEOAuth2Plugin: loaded Scope from provider:" << m_scope;
+                                        }
+                                    } else if (xml.isEndElement() && xml.name() == "group") {
+                                        break; // 退出 user_agent 层
+                                    }
+                                }
+                            } else if (xml.isEndElement() && xml.name() == "group") {
+                                break; // 退出 oauth2 层
+                            }
+                        }
+                    } else if (xml.isEndElement() && xml.name() == "group") {
+                        break; // 退出 auth 层
+                    }
+                }
+            }
+        }
+        if (xml.hasError()) {
+            qDebug() << "KDEOAuth2Plugin: XML parse error in provider file:" << xml.errorString();
+        }
+        file.close();
+    } else {
+        qDebug() << "KDEOAuth2Plugin: provider file not found, fallback to env vars.";
+    }
+
+    // 环境变量作为兜底
     QString configServer = qEnvironmentVariable("OAUTH2_SERVER_URL");
     QString configClientId = qEnvironmentVariable("OAUTH2_CLIENT_ID");
     QString configAuthPath = qEnvironmentVariable("OAUTH2_AUTH_PATH");
@@ -790,42 +861,36 @@ void KDEOAuth2Plugin::loadProviderConfiguration()
     QString configUserInfoPath = qEnvironmentVariable("OAUTH2_USERINFO_PATH");
     QString configRedirectUri = qEnvironmentVariable("OAUTH2_REDIRECT_URI");
     QString configScope = qEnvironmentVariable("OAUTH2_SCOPE");
-    
+
     if (!configServer.isEmpty()) {
         m_serverUrl = configServer;
-        qDebug() << "KDEOAuth2Plugin: loaded server URL from config:" << m_serverUrl;
+        qDebug() << "KDEOAuth2Plugin: loaded server URL from env:" << m_serverUrl;
     }
-    
     if (!configClientId.isEmpty()) {
         m_clientId = configClientId;
-        qDebug() << "KDEOAuth2Plugin: loaded client ID from config:" << m_clientId;
+        qDebug() << "KDEOAuth2Plugin: loaded client ID from env:" << m_clientId;
     }
-    
     if (!configAuthPath.isEmpty()) {
         m_authPath = configAuthPath;
-        qDebug() << "KDEOAuth2Plugin: loaded auth path from config:" << m_authPath;
+        qDebug() << "KDEOAuth2Plugin: loaded auth path from env:" << m_authPath;
     }
-    
     if (!configTokenPath.isEmpty()) {
         m_tokenPath = configTokenPath;
-        qDebug() << "KDEOAuth2Plugin: loaded token path from config:" << m_tokenPath;
+        qDebug() << "KDEOAuth2Plugin: loaded token path from env:" << m_tokenPath;
     }
-    
     if (!configUserInfoPath.isEmpty()) {
         m_userInfoPath = configUserInfoPath;
-        qDebug() << "KDEOAuth2Plugin: loaded userinfo path from config:" << m_userInfoPath;
+        qDebug() << "KDEOAuth2Plugin: loaded userinfo path from env:" << m_userInfoPath;
     }
-    
     if (!configRedirectUri.isEmpty()) {
         m_redirectUri = configRedirectUri;
-        qDebug() << "KDEOAuth2Plugin: loaded redirect URI from config:" << m_redirectUri;
+        qDebug() << "KDEOAuth2Plugin: loaded redirect URI from env:" << m_redirectUri;
     }
-    
     if (!configScope.isEmpty()) {
         m_scope = configScope;
-        qDebug() << "KDEOAuth2Plugin: loaded scope from config:" << m_scope;
+        qDebug() << "KDEOAuth2Plugin: loaded scope from env:" << m_scope;
     }
-    
+
     qDebug() << "KDEOAuth2Plugin: final configuration - Server:" << m_serverUrl 
              << "Client ID:" << m_clientId << "Redirect URI:" << m_redirectUri;
 }
