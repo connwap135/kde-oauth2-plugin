@@ -86,8 +86,8 @@ echo -e "${GREEN}✅ 编译成功${NC}"
 cd ..
 
 # 检查编译产物
-if [ ! -f "$BUILD_DIR/kde_oauth2_plugin.so" ]; then
-    echo -e "${RED}❌ 找不到编译产物: kde_oauth2_plugin.so${NC}"
+if [ ! -f "$BUILD_DIR/gzweibo_oauth2_plugin.so" ]; then
+    echo -e "${RED}❌ 找不到编译产物: gzweibo_oauth2_plugin.so${NC}"
     exit 1
 fi
 
@@ -191,8 +191,8 @@ echo -e "${YELLOW}📋 复制文件...${NC}"
 
 # 复制插件文件
 echo "复制插件文件..."
-cp "$BUILD_DIR/kde_oauth2_plugin.so" "${PACKAGE_DIR}/usr/lib/x86_64-linux-gnu/qt5/plugins/kaccounts/ui/"
-cp "src/kdeoauth2plugin.json" "${PACKAGE_DIR}/usr/lib/x86_64-linux-gnu/qt5/plugins/kaccounts/ui/kde_oauth2_plugin.so.json"
+cp "$BUILD_DIR/gzweibo_oauth2_plugin.so" "${PACKAGE_DIR}/usr/lib/x86_64-linux-gnu/qt5/plugins/kaccounts/ui/"
+cp "src/kdeoauth2plugin.json" "${PACKAGE_DIR}/usr/lib/x86_64-linux-gnu/qt5/plugins/kaccounts/ui/gzweibo_oauth2_plugin.so.json"
 
 # 复制配置文件
 echo "复制配置文件..."
@@ -274,7 +274,7 @@ find "${PACKAGE_DIR}" -type f -exec chmod 644 {} \;
 find "${PACKAGE_DIR}" -type d -exec chmod 755 {} \;
 
 # 可执行文件权限
-chmod 755 "${PACKAGE_DIR}/usr/lib/x86_64-linux-gnu/qt5/plugins/kaccounts/ui/kde_oauth2_plugin.so"
+chmod 755 "${PACKAGE_DIR}/usr/lib/x86_64-linux-gnu/qt5/plugins/kaccounts/ui/gzweibo_oauth2_plugin.so"
 chmod 755 "${PACKAGE_DIR}/usr/bin/kde-oauth2-token"
 chmod 755 "${PACKAGE_DIR}/DEBIAN/postinst"
 chmod 755 "${PACKAGE_DIR}/DEBIAN/prerm"
