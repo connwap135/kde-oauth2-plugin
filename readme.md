@@ -2,6 +2,24 @@
 
 这是一个为 KDE Online Accounts 系统开发的自定义 OAuth2 认证插件，用于连接到您的自定义 OAuth2 服务器。
 
+## 🚀 快速开始
+
+### Git 仓库设置
+```bash
+# 克隆仓库
+git clone <repository-url>
+cd kde-oauth2-plugin
+
+# 安装构建依赖
+sudo apt install build-essential cmake qtbase5-dev libkaccounts-dev libkf5i18n-dev
+
+# 构建项目
+./quick_build.sh
+
+# 安装插件
+sudo make install
+```
+
 ## 功能特性
 
 - ✅ 完整的 OAuth2 授权码流程支持
