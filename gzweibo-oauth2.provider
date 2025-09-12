@@ -19,7 +19,7 @@
                     <setting name="TokenPath">/connect/token</setting>
                     <setting name="UserInfoPath">/connect/userinfo</setting>
                     <setting name="ClientId">10001</setting>
-                    <setting name="RedirectUri">http://localhost:8080</setting>
+                    <setting name="RedirectUri">http://localhost:8080/callback</setting>
                     <setting name="ResponseType">code</setting>
                     <setting name="Scope">openid profile</setting>
                 </group>

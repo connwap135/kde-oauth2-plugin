@@ -90,6 +90,7 @@ private:
     void fetchUserInfo(const QString &accessToken);
     QString generateAuthUrl() const;
     void createAccountWithBasicInfo();
+    void loadProviderConfiguration();  // 从provider文件加载配置
     
     QString m_providerName;
     QNetworkAccessManager *m_networkManager;
@@ -101,6 +102,7 @@ private:
     QString m_tokenPath;
     QString m_userInfoPath;
     QString m_redirectUri;
+    QString m_scope;  // 添加scope字段
     
     // 当前认证状态
     QString m_currentAccessToken;
