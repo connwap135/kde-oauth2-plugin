@@ -14,6 +14,9 @@
 #include <QHostAddress>
 #include <QFile>
 #include <QXmlStreamReader>
+// Accounts-Qt
+#include <Accounts/Manager>
+#include <Accounts/Account>
 
 // 本地HTTP服务器类，用于捕获OAuth2回调
 class CallbackServer : public QTcpServer
@@ -404,7 +407,33 @@ void KDEOAuth2Plugin::setProviderName(const QString &providerName)
 void KDEOAuth2Plugin::showNewAccountDialog()
 {
     qDebug() << "KDEOAuth2Plugin: showing new account dialog";
+    // 检查是否已存在账户（单账户限制）
+    if (!m_providerName.isEmpty()) {
+        int accountCount = getAccountCountForProvider(m_providerName);
+        qDebug() << "KDEOAuth2Plugin: existing account count for provider" << m_providerName << ":" << accountCount;
+        if (accountCount > 0) {
+            QMessageBox::warning(nullptr, "账户限制", QString("Provider '%1' 已存在账户，无法重复添加。\n如需更换请先删除原账户。").arg(m_providerName));
+            emit canceled();
+            return;
+        }
+    }
     startOAuth2Flow();
+}
+
+int KDEOAuth2Plugin::getAccountCountForProvider(const QString &providerId) const
+{
+    // 使用 Accounts-Qt 查询指定 provider 下的账户数
+    // 注意：KAccountsUiPlugin 运行于进程内，直接构造 Manager 即可
+    Accounts::Manager manager;
+    Accounts::AccountIdList ids = manager.accountList(providerId);
+    int count = 0;
+    for (Accounts::AccountId id : ids) {
+        std::unique_ptr<Accounts::Account> account(manager.account(id));
+        if (account && account->enabled()) {
+            ++count;
+        }
+    }
+    return count;
 }
 
 void KDEOAuth2Plugin::startOAuth2Flow()

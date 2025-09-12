@@ -93,6 +93,8 @@ private:
     void loadProviderConfiguration();  // 从provider文件加载配置
     void loadConfigurationFromEnvironment();  // 从环境变量加载配置
     void loadFallbackConfiguration();  // 使用默认配置
+    // 查询指定 provider 已存在的账户数量（用于限制单账户）
+    int getAccountCountForProvider(const QString &providerId) const;
     
     QString m_providerName;
     QNetworkAccessManager *m_networkManager;
