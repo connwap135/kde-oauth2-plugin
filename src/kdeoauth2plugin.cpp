@@ -422,17 +422,50 @@ void KDEOAuth2Plugin::showNewAccountDialog()
 
 int KDEOAuth2Plugin::getAccountCountForProvider(const QString &providerId) const
 {
+    qDebug() << "KDEOAuth2Plugin::getAccountCountForProvider: checking provider" << providerId;
+    
     // 使用 Accounts-Qt 查询指定 provider 下的账户数
     // 注意：KAccountsUiPlugin 运行于进程内，直接构造 Manager 即可
     Accounts::Manager manager;
-    Accounts::AccountIdList ids = manager.accountList(providerId);
+    
+    // 输出所有可用的 provider
+    Accounts::ProviderList allProviders = manager.providerList();
+    qDebug() << "KDEOAuth2Plugin::getAccountCountForProvider: total providers available:" << allProviders.size();
+    for (const Accounts::Provider &provider : allProviders) {
+        qDebug() << "  - Available provider:" << provider.name();
+    }
+    
+    // 修复：使用通用的 accountList() 方法，然后手动过滤
+    // 因为 accountList(providerId) 依赖于 provider 注册，可能不可靠
+    Accounts::AccountIdList allIds = manager.accountList();
+    qDebug() << "KDEOAuth2Plugin::getAccountCountForProvider: total accounts found:" << allIds.size();
+    
     int count = 0;
-    for (Accounts::AccountId id : ids) {
+    for (Accounts::AccountId id : allIds) {
+        qDebug() << "KDEOAuth2Plugin::getAccountCountForProvider: checking account ID" << id;
         std::unique_ptr<Accounts::Account> account(manager.account(id));
-        if (account && account->enabled()) {
-            ++count;
+        if (account) {
+            QString accountProvider = account->providerName();
+            bool enabled = account->enabled();
+            qDebug() << "KDEOAuth2Plugin::getAccountCountForProvider: account" << id 
+                     << "provider:" << accountProvider << "enabled:" << enabled 
+                     << "target provider:" << providerId;
+            
+            // 手动比较 provider 名称
+            if (accountProvider == providerId && enabled) {
+                ++count;
+                qDebug() << "KDEOAuth2Plugin::getAccountCountForProvider: account" << id << "matches and is enabled, count now:" << count;
+            } else if (accountProvider == providerId) {
+                qDebug() << "KDEOAuth2Plugin::getAccountCountForProvider: account" << id << "matches but is disabled, skipping";
+            } else {
+                qDebug() << "KDEOAuth2Plugin::getAccountCountForProvider: account" << id << "provider mismatch, skipping";
+            }
+        } else {
+            qDebug() << "KDEOAuth2Plugin::getAccountCountForProvider: failed to load account" << id;
         }
     }
+    
+    qDebug() << "KDEOAuth2Plugin::getAccountCountForProvider: final enabled account count for provider" << providerId << ":" << count;
     return count;
 }
 

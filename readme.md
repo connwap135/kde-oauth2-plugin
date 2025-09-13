@@ -751,5 +751,6 @@ Your Name <your@email.com>
 
 **注意**: 确保您的 OAuth2 服务器支持标准的授权码流程，并且所有端点都正确配置。
 
-export QT_LOGGING_RULES="kpluginfactory.debug=true;kaccounts.debug=true"
-systemsettings5 kcm_onlineaccounts &> ~/kaccounts_debug.log
+
+实时监控特定进程的调试输出
+journalctl --user -f | grep -E "(KDEOAuth2Plugin|OAuth2Dialog|CallbackServer)"
