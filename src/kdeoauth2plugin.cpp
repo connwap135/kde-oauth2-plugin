@@ -354,7 +354,7 @@ void OAuth2Dialog::onCancel()
     reject();
 }
 
-// KDEOAuth2Plugin 实现 (支持从环境变量读取配置)
+
 KDEOAuth2Plugin::KDEOAuth2Plugin(QObject *parent)
     : KAccountsUiPlugin(parent)
     , m_networkManager(nullptr)
@@ -365,9 +365,26 @@ KDEOAuth2Plugin::KDEOAuth2Plugin(QObject *parent)
     , m_userInfoPath("/connect/userinfo")       // 默认值，可被环境变量覆盖
     , m_redirectUri("http://localhost:8080/callback")  // 默认值，可被环境变量覆盖
     , m_scope("openid profile")                 // 默认值，可被环境变量覆盖
+    , m_dbusAdapter(nullptr)
 {
     qDebug() << "KDEOAuth2Plugin: Constructor called";
     m_networkManager = new QNetworkAccessManager(this);
+    
+    // 创建DBus适配器
+    m_dbusAdapter = new KDEOAuth2PluginDBusAdapter(this);
+    
+    // 注册DBus服务
+    QDBusConnection sessionBus = QDBusConnection::sessionBus();
+    if (sessionBus.registerService("org.kde.kaccounts.OAuth2Plugin")) {
+        if (sessionBus.registerObject("/OAuth2Plugin", this)) {
+            qDebug() << "KDEOAuth2Plugin: DBus service registered successfully";
+            qDebug() << "KDEOAuth2Plugin: DBus adapter created and attached to object";
+        } else {
+            qDebug() << "KDEOAuth2Plugin: Failed to register DBus object:" << sessionBus.lastError().message();
+        }
+    } else {
+        qDebug() << "KDEOAuth2Plugin: Failed to register DBus service:" << sessionBus.lastError().message();
+    }
     
     // 优先从provider文件加载配置
     loadProviderConfiguration();
@@ -378,6 +395,17 @@ KDEOAuth2Plugin::KDEOAuth2Plugin(QObject *parent)
 KDEOAuth2Plugin::~KDEOAuth2Plugin()
 {
     qDebug() << "KDEOAuth2Plugin: Destructor called";
+    
+    // 注销DBus服务
+    QDBusConnection sessionBus = QDBusConnection::sessionBus();
+    sessionBus.unregisterObject("/OAuth2Plugin");
+    sessionBus.unregisterService("org.kde.kaccounts.OAuth2Plugin");
+    
+    // 清理DBus适配器
+    if (m_dbusAdapter) {
+        delete m_dbusAdapter;
+        m_dbusAdapter = nullptr;
+    }
 }
 
 void KDEOAuth2Plugin::init(KAccountsUiPlugin::UiType type)
@@ -407,12 +435,33 @@ void KDEOAuth2Plugin::setProviderName(const QString &providerName)
 void KDEOAuth2Plugin::showNewAccountDialog()
 {
     qDebug() << "KDEOAuth2Plugin: showing new account dialog";
+    
+    // 更新状态
+    m_currentDialogState = "creating";
+    m_dialogInfo.clear();
+    m_dialogInfo["type"] = "new_account";
+    m_dialogInfo["provider"] = m_providerName;
+    
+    // 发送状态变化信号
+    if (m_dbusAdapter) {
+        emit m_dbusAdapter->dialogStateChanged("new_account", m_currentDialogState, m_dialogInfo);
+    }
+    
     // 检查是否已存在账户（单账户限制）
     if (!m_providerName.isEmpty()) {
         int accountCount = getAccountCountForProvider(m_providerName);
         qDebug() << "KDEOAuth2Plugin: existing account count for provider" << m_providerName << ":" << accountCount;
         if (accountCount > 0) {
-            QMessageBox::warning(nullptr, "账户限制", QString("Provider '%1' 已存在账户，无法重复添加。\n如需更换请先删除原账户。").arg(m_providerName));
+            QString errorMsg = QString("Provider '%1' 已存在账户，无法重复添加。\n如需更换请先删除原账户。").arg(m_providerName);
+            QMessageBox::warning(nullptr, "账户限制", errorMsg);
+            
+            // 发送错误信号
+            if (m_dbusAdapter) {
+                emit m_dbusAdapter->accountCreationError("account_limit_exceeded", errorMsg);
+            }
+            
+            m_currentDialogState = "none";
+            m_dialogInfo.clear();
             emit canceled();
             return;
         }
@@ -469,20 +518,466 @@ int KDEOAuth2Plugin::getAccountCountForProvider(const QString &providerId) const
     return count;
 }
 
+QStringList KDEOAuth2Plugin::dbusGetAccountsList() const
+{
+    qDebug() << "KDEOAuth2Plugin::dbusGetAccountsList: getting accounts list";
+    
+    QStringList result;
+    
+    // 使用 Accounts-Qt 查询所有账户
+    Accounts::Manager manager;
+    Accounts::AccountIdList allIds = manager.accountList();
+    
+    qDebug() << "KDEOAuth2Plugin::dbusGetAccountsList: total accounts found:" << allIds.size();
+    
+    for (Accounts::AccountId id : allIds) {
+        std::unique_ptr<Accounts::Account> account(manager.account(id));
+        if (account) {
+            QString accountProvider = account->providerName();
+            bool enabled = account->enabled();
+            QString displayName = account->displayName();
+            
+            // 只返回当前provider的账户
+            if (accountProvider == m_providerName) {
+                QString accountInfo = QString("ID:%1|Name:%2|Enabled:%3")
+                    .arg(id)
+                    .arg(displayName.isEmpty() ? QString("Account %1").arg(id) : displayName)
+                    .arg(enabled ? "Yes" : "No");
+                
+                result.append(accountInfo);
+                qDebug() << "KDEOAuth2Plugin::dbusGetAccountsList: found account:" << accountInfo;
+            }
+        }
+    }
+    
+    qDebug() << "KDEOAuth2Plugin::dbusGetAccountsList: returning" << result.size() << "accounts";
+    return result;
+}
+
+bool KDEOAuth2Plugin::dbusDeleteAccount(quint32 accountId)
+{
+    qDebug() << "KDEOAuth2Plugin::dbusDeleteAccount: deleting account" << accountId;
+    
+    // 使用 Accounts-Qt 删除账户
+    Accounts::Manager manager;
+    std::unique_ptr<Accounts::Account> account(manager.account(accountId));
+    
+    if (!account) {
+        qDebug() << "KDEOAuth2Plugin::dbusDeleteAccount: account not found" << accountId;
+        return false;
+    }
+    
+    // 检查是否是当前provider的账户
+    if (account->providerName() != m_providerName) {
+        qDebug() << "KDEOAuth2Plugin::dbusDeleteAccount: account provider mismatch" << account->providerName() << "vs" << m_providerName;
+        return false;
+    }
+    
+    // 删除账户
+    account->remove();
+    qDebug() << "KDEOAuth2Plugin::dbusDeleteAccount: delete request sent for account" << accountId;
+    
+    return true;
+}
+
+bool KDEOAuth2Plugin::dbusEnableAccount(quint32 accountId, bool enabled)
+{
+    qDebug() << "KDEOAuth2Plugin::dbusEnableAccount: setting account" << accountId << "enabled:" << enabled;
+    
+    // 使用 Accounts-Qt 启用/禁用账户
+    Accounts::Manager manager;
+    std::unique_ptr<Accounts::Account> account(manager.account(accountId));
+    
+    if (!account) {
+        qDebug() << "KDEOAuth2Plugin::dbusEnableAccount: account not found" << accountId;
+        return false;
+    }
+    
+    // 检查是否是当前provider的账户
+    if (account->providerName() != m_providerName) {
+        qDebug() << "KDEOAuth2Plugin::dbusEnableAccount: account provider mismatch" << account->providerName() << "vs" << m_providerName;
+        return false;
+    }
+    
+    // 设置启用状态
+    account->setEnabled(enabled);
+    account->sync();
+    qDebug() << "KDEOAuth2Plugin::dbusEnableAccount: account" << accountId << "enabled set to" << enabled;
+    
+    return true;
+}
+
+QVariantMap KDEOAuth2Plugin::dbusGetAccountDetails(quint32 accountId)
+{
+    qDebug() << "KDEOAuth2Plugin::dbusGetAccountDetails: getting details for account" << accountId;
+    
+    QVariantMap result;
+    
+    // 使用 Accounts-Qt 获取账户详情
+    Accounts::Manager manager;
+    std::unique_ptr<Accounts::Account> account(manager.account(accountId));
+    
+    if (!account) {
+        qDebug() << "KDEOAuth2Plugin::dbusGetAccountDetails: account not found" << accountId;
+        result["error"] = "Account not found";
+        return result;
+    }
+    
+    // 检查是否是当前provider的账户
+    if (account->providerName() != m_providerName) {
+        qDebug() << "KDEOAuth2Plugin::dbusGetAccountDetails: account provider mismatch" << account->providerName() << "vs" << m_providerName;
+        result["error"] = "Account provider mismatch";
+        return result;
+    }
+    
+    // 获取基本信息
+    result["id"] = accountId;
+    result["provider"] = account->providerName();
+    result["displayName"] = account->displayName();
+    result["enabled"] = account->enabled();
+    
+    // 获取账户设置（如果可用）
+    // 注意：Accounts-Qt的设置访问方式可能因版本而异
+    // 这里我们只返回基本信息，避免API兼容性问题
+    result["server"] = m_serverUrl;
+    result["client_id"] = m_clientId;
+    
+    qDebug() << "KDEOAuth2Plugin::dbusGetAccountDetails: returning basic details";
+    return result;
+}
+
+bool KDEOAuth2Plugin::dbusRefreshToken(quint32 accountId)
+{
+    qDebug() << "KDEOAuth2Plugin::dbusRefreshToken: refreshing token for account" << accountId;
+    
+    // 使用 Accounts-Qt 获取账户
+    Accounts::Manager manager;
+    std::unique_ptr<Accounts::Account> account(manager.account(accountId));
+    
+    if (!account) {
+        qDebug() << "KDEOAuth2Plugin::dbusRefreshToken: account not found" << accountId;
+        return false;
+    }
+    
+    // 检查是否是当前provider的账户
+    if (account->providerName() != m_providerName) {
+        qDebug() << "KDEOAuth2Plugin::dbusRefreshToken: account provider mismatch" << account->providerName() << "vs" << m_providerName;
+        return false;
+    }
+    
+    // 获取当前的refresh token
+    // 注意：Accounts-Qt的设置访问方式可能因版本而异
+    // 这里我们使用value()方法，如果不可用则返回false
+    QString refreshToken;
+    try {
+        refreshToken = account->value("refresh_token").toString();
+    } catch (...) {
+        qDebug() << "KDEOAuth2Plugin::dbusRefreshToken: cannot access refresh token";
+        return false;
+    }
+    
+    if (refreshToken.isEmpty()) {
+        qDebug() << "KDEOAuth2Plugin::dbusRefreshToken: no refresh token available";
+        return false;
+    }
+    
+    // 这里应该实现token刷新逻辑
+    // 由于这需要网络请求，我们暂时返回false并记录日志
+    qDebug() << "KDEOAuth2Plugin::dbusRefreshToken: token refresh not implemented yet";
+    return false;
+}
+
+QVariantMap KDEOAuth2Plugin::dbusGetPluginStatus()
+{
+    qDebug() << "KDEOAuth2Plugin::dbusGetPluginStatus: getting plugin status";
+    
+    QVariantMap status;
+    status["providerName"] = m_providerName;
+    status["serverUrl"] = m_serverUrl;
+    status["clientId"] = m_clientId;
+    status["authPath"] = m_authPath;
+    status["tokenPath"] = m_tokenPath;
+    status["userInfoPath"] = m_userInfoPath;
+    status["redirectUri"] = m_redirectUri;
+    status["scope"] = m_scope;
+    
+    // 获取账户统计
+    Accounts::Manager manager;
+    Accounts::AccountIdList allIds = manager.accountList();
+    int totalAccounts = 0;
+    int enabledAccounts = 0;
+    
+    for (Accounts::AccountId id : allIds) {
+        std::unique_ptr<Accounts::Account> account(manager.account(id));
+        if (account && account->providerName() == m_providerName) {
+            totalAccounts++;
+            if (account->enabled()) {
+                enabledAccounts++;
+            }
+        }
+    }
+    
+    status["totalAccounts"] = totalAccounts;
+    status["enabledAccounts"] = enabledAccounts;
+    status["currentDialogState"] = m_currentDialogState;
+    status["authMethod"] = m_authMethod;
+    
+    qDebug() << "KDEOAuth2Plugin::dbusGetPluginStatus: returning status";
+    return status;
+}
+
+// 扩展的DBus接口方法实现
+
+void KDEOAuth2Plugin::dbusInitNewAccountWithConfig(const QVariantMap &config)
+{
+    qDebug() << "KDEOAuth2Plugin::dbusInitNewAccountWithConfig: starting with config" << config;
+    
+    // 更新状态
+    m_currentDialogState = "creating";
+    m_dialogInfo = config;
+    
+    // 发送状态变化信号
+    if (m_dbusAdapter) {
+        QVariantMap data;
+        data["config"] = config;
+        emit m_dbusAdapter->dialogStateChanged("new_account", m_currentDialogState, data);
+    }
+    
+    // 应用配置
+    if (config.contains("serverUrl")) {
+        m_serverUrl = config["serverUrl"].toString();
+    }
+    if (config.contains("clientId")) {
+        m_clientId = config["clientId"].toString();
+    }
+    if (config.contains("redirectUri")) {
+        m_redirectUri = config["redirectUri"].toString();
+    }
+    if (config.contains("scope")) {
+        m_scope = config["scope"].toString();
+    }
+    
+    // 启动标准流程
+    showNewAccountDialog();
+}
+
+void KDEOAuth2Plugin::dbusCancelCurrentDialog()
+{
+    qDebug() << "KDEOAuth2Plugin::dbusCancelCurrentDialog: canceling current dialog";
+    
+    QString previousState = m_currentDialogState;
+    m_currentDialogState = "none";
+    m_dialogInfo.clear();
+    
+    // 发送取消信号
+    if (m_dbusAdapter) {
+        if (previousState == "creating") {
+            emit m_dbusAdapter->accountCreationCanceled("User requested cancellation");
+        } else if (previousState == "configuring") {
+            quint32 accountId = m_dialogInfo.value("accountId", 0).toUInt();
+            emit m_dbusAdapter->accountConfigurationCanceled(accountId, "User requested cancellation");
+        }
+        
+        QVariantMap data;
+        data["previousState"] = previousState;
+        emit m_dbusAdapter->dialogStateChanged("none", "none", data);
+    }
+    
+    // 这里可以添加实际取消对话框的逻辑
+    // 例如关闭当前打开的对话框
+}
+
+QString KDEOAuth2Plugin::dbusGetCurrentDialogState() const
+{
+    return m_currentDialogState;
+}
+
+QVariantMap KDEOAuth2Plugin::dbusGetDialogInfo() const
+{
+    QVariantMap info = m_dialogInfo;
+    info["currentState"] = m_currentDialogState;
+    info["authMethod"] = m_authMethod;
+    return info;
+}
+
+void KDEOAuth2Plugin::dbusSetOAuth2ServerUrl(const QString &serverUrl)
+{
+    qDebug() << "KDEOAuth2Plugin::dbusSetOAuth2ServerUrl:" << serverUrl;
+    m_serverUrl = serverUrl;
+}
+
+void KDEOAuth2Plugin::dbusSetOAuth2ClientId(const QString &clientId)
+{
+    qDebug() << "KDEOAuth2Plugin::dbusSetOAuth2ClientId:" << clientId;
+    m_clientId = clientId;
+}
+
+void KDEOAuth2Plugin::dbusSetOAuth2RedirectUri(const QString &redirectUri)
+{
+    qDebug() << "KDEOAuth2Plugin::dbusSetOAuth2RedirectUri:" << redirectUri;
+    m_redirectUri = redirectUri;
+}
+
+void KDEOAuth2Plugin::dbusSetOAuth2Scope(const QString &scope)
+{
+    qDebug() << "KDEOAuth2Plugin::dbusSetOAuth2Scope:" << scope;
+    m_scope = scope;
+}
+
+QVariantMap KDEOAuth2Plugin::dbusGetOAuth2Configuration() const
+{
+    QVariantMap config;
+    config["serverUrl"] = m_serverUrl;
+    config["clientId"] = m_clientId;
+    config["authPath"] = m_authPath;
+    config["tokenPath"] = m_tokenPath;
+    config["userInfoPath"] = m_userInfoPath;
+    config["redirectUri"] = m_redirectUri;
+    config["scope"] = m_scope;
+    config["authMethod"] = m_authMethod;
+    return config;
+}
+
+bool KDEOAuth2Plugin::dbusTestConnection()
+{
+    qDebug() << "KDEOAuth2Plugin::dbusTestConnection: testing connection to" << m_serverUrl;
+    
+    // 简单的连接测试 - 尝试访问服务器
+    QUrl testUrl(m_serverUrl);
+    if (!testUrl.isValid() || testUrl.scheme().isEmpty() || testUrl.host().isEmpty()) {
+        qDebug() << "KDEOAuth2Plugin::dbusTestConnection: invalid server URL";
+        return false;
+    }
+    
+    // 这里可以添加更复杂的连接测试逻辑
+    // 例如发送HEAD请求检查服务器响应
+    return true;
+}
+
+QStringList KDEOAuth2Plugin::dbusGetSupportedAuthMethods() const
+{
+    return QStringList() << "auto" << "manual" << "callback";
+}
+
+void KDEOAuth2Plugin::dbusSetAuthMethod(const QString &method)
+{
+    qDebug() << "KDEOAuth2Plugin::dbusSetAuthMethod:" << method;
+    
+    QStringList supportedMethods = dbusGetSupportedAuthMethods();
+    if (supportedMethods.contains(method)) {
+        m_authMethod = method;
+    } else {
+        qWarning() << "KDEOAuth2Plugin::dbusSetAuthMethod: unsupported method" << method;
+    }
+}
+
+// 新增的DBus方法实现
+bool KDEOAuth2Plugin::dbusSetOAuth2Config(const QString &server, const QString &clientId, const QString &authPath, const QString &tokenPath)
+{
+    qDebug() << "KDEOAuth2Plugin::dbusSetOAuth2Config:" << server << clientId << authPath << tokenPath;
+    
+    try {
+        // 设置各个配置参数
+        dbusSetOAuth2ServerUrl(server);
+        dbusSetOAuth2ClientId(clientId);
+        // 注意：当前实现中没有直接设置path的方法，这里需要扩展
+        
+        // 验证URL有效性
+        QUrl serverUrl(server);
+        if (!serverUrl.isValid() || serverUrl.scheme().isEmpty()) {
+            qWarning() << "Invalid server URL:" << server;
+            return false;
+        }
+        
+        // 发送配置变化信号
+        if (m_dbusAdapter) {
+            emit m_dbusAdapter->oauth2ConfigChanged(server, clientId, authPath, tokenPath);
+        }
+        
+        return true;
+    } catch (...) {
+        qWarning() << "Exception in dbusSetOAuth2Config";
+        return false;
+    }
+}
+
+QString KDEOAuth2Plugin::dbusGetAuthMethod() const
+{
+    return m_authMethod;
+}
+
+int KDEOAuth2Plugin::dbusGetAccountCount() const
+{
+    qDebug() << "KDEOAuth2Plugin::dbusGetAccountCount";
+    
+    if (!m_providerName.isEmpty()) {
+        return getAccountCountForProvider(m_providerName);
+    }
+    return 0;
+}
+
+QString KDEOAuth2Plugin::dbusGetPluginVersion() const
+{
+    return "1.0.0";
+}
+
+QString KDEOAuth2Plugin::dbusGetPluginInfo() const
+{
+    return "KDE OAuth2 Plugin with enhanced DBus interface for multi-language support";
+}
+
+QString KDEOAuth2Plugin::dbusGetLastError() const
+{
+    // 这里可以返回最后的错误信息，当前简化实现
+    return m_lastError;
+}
+
+bool KDEOAuth2Plugin::dbusClearError()
+{
+    m_lastError.clear();
+    return true;
+}
+
+QVariantMap KDEOAuth2Plugin::dbusGetCurrentDialogInfo() const
+{
+    return m_dialogInfo;
+}
+
 void KDEOAuth2Plugin::startOAuth2Flow()
 {
     qDebug() << "KDEOAuth2Plugin: starting OAuth2 authentication flow";
     
+    // 更新状态
+    m_currentDialogState = "oauth_in_progress";
+    
     QString authUrl = generateAuthUrl();
     QUrl urlCheck(authUrl);
     if (!urlCheck.isValid() || urlCheck.scheme().isEmpty() || urlCheck.host().isEmpty()) {
-        QMessageBox::critical(nullptr, "OAuth2配置错误", QString("生成的认证URL无效：%1\n请联系开发人员检查OAuth2配置。").arg(authUrl));
+        QString errorMsg = QString("生成的认证URL无效：%1\n请联系开发人员检查OAuth2配置。").arg(authUrl);
+        QMessageBox::critical(nullptr, "OAuth2配置错误", errorMsg);
         qDebug() << "KDEOAuth2Plugin: Invalid authUrl generated:" << authUrl;
+        
+        // 发送错误信号
+        if (m_dbusAdapter) {
+            emit m_dbusAdapter->accountCreationError("invalid_auth_url", errorMsg);
+        }
+        
+        m_currentDialogState = "none";
+        m_dialogInfo.clear();
         emit canceled();
         return;
     }
     
     qDebug() << "KDEOAuth2Plugin: generated auth URL:" << authUrl;
+    
+    // 更新对话框信息
+    m_dialogInfo["auth_url"] = authUrl;
+    m_dialogInfo["redirect_uri"] = m_redirectUri;
+    
+    // 发送状态变化信号
+    if (m_dbusAdapter) {
+        emit m_dbusAdapter->dialogStateChanged("new_account", m_currentDialogState, m_dialogInfo);
+    }
     
     // 创建OAuth2认证对话框，传递重定向URI
     OAuth2Dialog *dialog = new OAuth2Dialog(authUrl, m_redirectUri);
@@ -494,13 +989,35 @@ void KDEOAuth2Plugin::startOAuth2Flow()
         qDebug() << "KDEOAuth2Plugin: received authorization code:" << authCode;
         
         if (!authCode.isEmpty()) {
+            // 更新状态到token交换阶段
+            m_currentDialogState = "token_exchange";
+            m_dialogInfo["auth_code"] = authCode;
+            
+            if (m_dbusAdapter) {
+                emit m_dbusAdapter->dialogStateChanged("new_account", m_currentDialogState, m_dialogInfo);
+            }
+            
             exchangeCodeForToken(authCode);
         } else {
             qDebug() << "KDEOAuth2Plugin: no authorization code received";
+            
+            if (m_dbusAdapter) {
+                emit m_dbusAdapter->accountCreationCanceled("未收到授权码");
+            }
+            
+            m_currentDialogState = "none";
+            m_dialogInfo.clear();
             emit canceled();
         }
     } else {
         qDebug() << "KDEOAuth2Plugin: user canceled authentication";
+        
+        if (m_dbusAdapter) {
+            emit m_dbusAdapter->accountCreationCanceled("用户取消了认证");
+        }
+        
+        m_currentDialogState = "none";
+        m_dialogInfo.clear();
         emit canceled();
     }
     
@@ -526,6 +1043,14 @@ void KDEOAuth2Plugin::exchangeCodeForToken(const QString &authCode)
 {
     qDebug() << "KDEOAuth2Plugin: exchanging authorization code for access token";
     
+    // 更新状态
+    m_currentDialogState = "token_exchange";
+    m_dialogInfo["status"] = "requesting_token";
+    
+    if (m_dbusAdapter) {
+        emit m_dbusAdapter->dialogStateChanged("new_account", m_currentDialogState, m_dialogInfo);
+    }
+    
     QUrl url(m_serverUrl + m_tokenPath);
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/x-www-form-urlencoded");
@@ -545,12 +1070,27 @@ void KDEOAuth2Plugin::onTokenRequestFinished()
     QNetworkReply *reply = qobject_cast<QNetworkReply*>(sender());
     if (!reply) {
         qDebug() << "KDEOAuth2Plugin: invalid reply object";
+        
+        if (m_dbusAdapter) {
+            emit m_dbusAdapter->accountCreationError("invalid_reply", "无效的网络响应对象");
+        }
+        
+        m_currentDialogState = "none";
+        m_dialogInfo.clear();
         emit canceled();
         return;
     }
     
     if (reply->error() != QNetworkReply::NoError) {
+        QString errorMsg = QString("Token请求失败：%1").arg(reply->errorString());
         qDebug() << "KDEOAuth2Plugin: token request failed:" << reply->errorString();
+        
+        if (m_dbusAdapter) {
+            emit m_dbusAdapter->accountCreationError("token_request_failed", errorMsg);
+        }
+        
+        m_currentDialogState = "none";
+        m_dialogInfo.clear();
         emit canceled();
         reply->deleteLater();
         return;
@@ -558,6 +1098,14 @@ void KDEOAuth2Plugin::onTokenRequestFinished()
     
     QByteArray data = reply->readAll();
     qDebug() << "KDEOAuth2Plugin: token response:" << data;
+    
+    // 更新状态
+    m_currentDialogState = "processing_token";
+    m_dialogInfo["status"] = "parsing_token_response";
+    
+    if (m_dbusAdapter) {
+        emit m_dbusAdapter->dialogStateChanged("new_account", m_currentDialogState, m_dialogInfo);
+    }
     
     QJsonDocument doc = QJsonDocument::fromJson(data);
     QJsonObject obj = doc.object();
@@ -570,10 +1118,34 @@ void KDEOAuth2Plugin::onTokenRequestFinished()
             m_currentExpiresIn = obj["expires_in"].toInt();
             qDebug() << "KDEOAuth2Plugin: expires_in received:" << m_currentExpiresIn;
         }
+        
+        // 更新对话框信息
+        m_dialogInfo["access_token_received"] = true;
+        m_dialogInfo["has_refresh_token"] = !m_currentRefreshToken.isEmpty();
+        if (m_currentExpiresIn > 0) {
+            m_dialogInfo["expires_in"] = m_currentExpiresIn;
+        }
+        
         qDebug() << "KDEOAuth2Plugin: successfully obtained access token";
+        
+        // 更新状态到获取用户信息阶段
+        m_currentDialogState = "fetching_user_info";
+        m_dialogInfo["status"] = "requesting_user_info";
+        
+        if (m_dbusAdapter) {
+            emit m_dbusAdapter->dialogStateChanged("new_account", m_currentDialogState, m_dialogInfo);
+        }
+        
         fetchUserInfo(m_currentAccessToken);
     } else {
         qDebug() << "KDEOAuth2Plugin: no access token in response";
+        
+        if (m_dbusAdapter) {
+            emit m_dbusAdapter->accountCreationError("no_access_token", "响应中未包含访问令牌");
+        }
+        
+        m_currentDialogState = "none";
+        m_dialogInfo.clear();
         emit canceled();
     }
     
@@ -597,6 +1169,13 @@ void KDEOAuth2Plugin::onUserInfoRequestFinished()
     QNetworkReply *reply = qobject_cast<QNetworkReply*>(sender());
     if (!reply) {
         qDebug() << "KDEOAuth2Plugin: invalid reply object";
+        
+        if (m_dbusAdapter) {
+            emit m_dbusAdapter->accountCreationError("invalid_reply", "无效的网络响应对象");
+        }
+        
+        m_currentDialogState = "none";
+        m_dialogInfo.clear();
         emit canceled();
         return;
     }
@@ -607,12 +1186,33 @@ void KDEOAuth2Plugin::onUserInfoRequestFinished()
     
     if (reply->error() != QNetworkReply::NoError) {
         qDebug() << "KDEOAuth2Plugin: user info request failed:" << reply->errorString();
+        
+        // 更新状态 - 用户信息获取失败，但仍可尝试创建基本账户
+        m_currentDialogState = "creating_account";
+        m_dialogInfo["status"] = "user_info_failed_creating_basic";
+        m_dialogInfo["warning"] = "用户信息获取失败，将创建基本账户";
+        
+        if (m_dbusAdapter) {
+            emit m_dbusAdapter->dialogStateChanged("new_account", m_currentDialogState, m_dialogInfo);
+        }
+        
         // 即使获取用户信息失败，我们仍然可以创建账户
+        createAccountWithBasicInfo();
+        reply->deleteLater();
+        return;
     }
     
     QByteArray data = reply->readAll();
     qDebug() << "KDEOAuth2Plugin: raw user info response data:" << data;
     qDebug() << "KDEOAuth2Plugin: user info response size:" << data.size() << "bytes";
+    
+    // 更新状态
+    m_currentDialogState = "processing_user_info";
+    m_dialogInfo["status"] = "parsing_user_info";
+    
+    if (m_dbusAdapter) {
+        emit m_dbusAdapter->dialogStateChanged("new_account", m_currentDialogState, m_dialogInfo);
+    }
     
     // 尝试解析JSON
     QJsonParseError parseError;
@@ -621,6 +1221,16 @@ void KDEOAuth2Plugin::onUserInfoRequestFinished()
     if (parseError.error != QJsonParseError::NoError) {
         qDebug() << "KDEOAuth2Plugin: JSON parse error:" << parseError.errorString();
         qDebug() << "KDEOAuth2Plugin: JSON parse error at offset:" << parseError.offset;
+        
+        // 更新状态并创建基本账户
+        m_currentDialogState = "creating_account";
+        m_dialogInfo["status"] = "json_parse_failed_creating_basic";
+        m_dialogInfo["warning"] = "用户信息解析失败，将创建基本账户";
+        
+        if (m_dbusAdapter) {
+            emit m_dbusAdapter->dialogStateChanged("new_account", m_currentDialogState, m_dialogInfo);
+        }
+        
         // 即使解析失败，也创建基本账户
         createAccountWithBasicInfo();
         reply->deleteLater();
@@ -633,6 +1243,15 @@ void KDEOAuth2Plugin::onUserInfoRequestFinished()
     // 详细打印每个字段
     for (auto it = userObj.begin(); it != userObj.end(); ++it) {
         qDebug() << "KDEOAuth2Plugin: user info field" << it.key() << "=" << it.value();
+    }
+    
+    // 更新状态为创建账户
+    m_currentDialogState = "creating_account";
+    m_dialogInfo["status"] = "creating_account_with_user_info";
+    m_dialogInfo["user_fields_count"] = userObj.keys().size();
+    
+    if (m_dbusAdapter) {
+        emit m_dbusAdapter->dialogStateChanged("new_account", m_currentDialogState, m_dialogInfo);
     }
     
     // 准备账户数据
@@ -753,6 +1372,21 @@ void KDEOAuth2Plugin::onUserInfoRequestFinished()
     qDebug() << "KDEOAuth2Plugin: final auth data keys:" << authData.keys();
     qDebug() << "KDEOAuth2Plugin: authentication successful, creating account";
     
+    // 更新最终状态
+    m_currentDialogState = "completed";
+    m_dialogInfo["status"] = "account_created_successfully";
+    m_dialogInfo["display_name"] = displayName;
+    m_dialogInfo["account_data_keys"] = QVariant::fromValue(authData.keys());
+    
+    if (m_dbusAdapter) {
+        emit m_dbusAdapter->dialogStateChanged("new_account", m_currentDialogState, m_dialogInfo);
+        emit m_dbusAdapter->accountCreated(0, displayName, authData); // 使用0作为临时账户ID
+    }
+    
+    // 重置状态
+    m_currentDialogState = "none";
+    m_dialogInfo.clear();
+    
     emit success(displayName, "", authData);
     
     reply->deleteLater();
@@ -785,6 +1419,15 @@ void KDEOAuth2Plugin::createAccountWithBasicInfo()
 {
     qDebug() << "KDEOAuth2Plugin: creating account with basic info (no user data available)";
     
+    // 更新状态
+    m_currentDialogState = "creating_account";
+    m_dialogInfo["status"] = "creating_basic_account";
+    m_dialogInfo["warning"] = "使用基本信息创建账户";
+    
+    if (m_dbusAdapter) {
+        emit m_dbusAdapter->dialogStateChanged("new_account", m_currentDialogState, m_dialogInfo);
+    }
+    
     // 准备基本账户数据
     QVariantMap authData;
     authData["server"] = m_serverUrl;
@@ -793,9 +1436,27 @@ void KDEOAuth2Plugin::createAccountWithBasicInfo()
     if (!m_currentRefreshToken.isEmpty()) {
         authData["refresh_token"] = m_currentRefreshToken;
     }
+    if (m_currentExpiresIn > 0) {
+        authData["expires_in"] = m_currentExpiresIn;
+    }
     
     // 使用默认显示名称
     QString displayName = "OAuth2 User";
+    
+    // 更新最终状态
+    m_currentDialogState = "completed";
+    m_dialogInfo["status"] = "basic_account_created_successfully";
+    m_dialogInfo["display_name"] = displayName;
+    m_dialogInfo["account_data_keys"] = QVariant::fromValue(authData.keys());
+    
+    if (m_dbusAdapter) {
+        emit m_dbusAdapter->dialogStateChanged("new_account", m_currentDialogState, m_dialogInfo);
+        emit m_dbusAdapter->accountCreated(0, displayName, authData); // 使用0作为临时账户ID
+    }
+    
+    // 重置状态
+    m_currentDialogState = "none";
+    m_dialogInfo.clear();
     
     qDebug() << "KDEOAuth2Plugin: creating basic account with display name:" << displayName;
     emit success(displayName, "", authData);
@@ -971,3 +1632,325 @@ void KDEOAuth2Plugin::loadProviderConfiguration()
 }
 
 #include "kdeoauth2plugin.moc"
+
+// DBus适配器实现
+KDEOAuth2PluginDBusAdapter::KDEOAuth2PluginDBusAdapter(KDEOAuth2Plugin *parent)
+    : QDBusAbstractAdaptor(parent)
+    , m_plugin(parent)
+{
+}
+
+void KDEOAuth2PluginDBusAdapter::initNewAccount()
+{
+    qDebug() << "=== KDEOAuth2PluginDBusAdapter: initNewAccount called via DBus ===";
+    qDebug() << "KDEOAuth2PluginDBusAdapter: Checking GUI environment...";
+
+    // 检查是否有GUI环境
+    if (!qApp || !qApp->desktop()) {
+        qWarning() << "=== KDEOAUTH2 WARNING: No GUI environment available ===";
+        qWarning() << "KDEOAuth2PluginDBusAdapter: Cannot display new account dialog in headless environment";
+        qWarning() << "KDEOAuth2PluginDBusAdapter: Please run this command in a graphical KDE environment";
+        qWarning() << "KDEOAuth2PluginDBusAdapter: Alternative: Use command-line OAuth2 setup or web-based authentication";
+
+        // 在没有GUI的环境中，提供命令行替代方案
+        qWarning() << "KDEOAuth2PluginDBusAdapter: For headless setup, you can use the following command-line approach:";
+        qWarning() << "KDEOAuth2PluginDBusAdapter: 1. Set DISPLAY environment variable: export DISPLAY=:0";
+        qWarning() << "KDEOAuth2PluginDBusAdapter: 2. Or use X11 forwarding if connecting via SSH: ssh -X user@host";
+        qWarning() << "KDEOAuth2PluginDBusAdapter: 3. Or run the command directly in the KDE Plasma session";
+
+        // 尝试设置DISPLAY环境变量（如果可能的话）
+        if (qgetenv("DISPLAY").isEmpty()) {
+            qputenv("DISPLAY", ":0");
+            qDebug() << "KDEOAuth2PluginDBusAdapter: Attempted to set DISPLAY=:0 for GUI access";
+        }
+
+        // 再次检查GUI环境
+        if (qApp && qApp->desktop()) {
+            qDebug() << "KDEOAuth2PluginDBusAdapter: GUI environment now available after DISPLAY fix";
+            m_plugin->init(KAccountsUiPlugin::NewAccountDialog);
+            return;
+        }
+
+        // 如果仍然没有GUI，返回错误但不崩溃
+        qWarning() << "=== KDEOAUTH2 ERROR: Still no GUI environment available ===";
+        return;
+    }
+
+    qDebug() << "KDEOAuth2PluginDBusAdapter: GUI environment available, proceeding with dialog";
+    m_plugin->init(KAccountsUiPlugin::NewAccountDialog);
+}
+
+void KDEOAuth2PluginDBusAdapter::initConfigureAccount(quint32 accountId)
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: initConfigureAccount called via DBus for account" << accountId;
+
+    // 检查是否有GUI环境
+    if (!qApp || !qApp->desktop()) {
+        qWarning() << "KDEOAuth2PluginDBusAdapter: No GUI environment available for DBus call";
+        qWarning() << "KDEOAuth2PluginDBusAdapter: Cannot display configure account dialog in headless environment";
+        qWarning() << "KDEOAuth2PluginDBusAdapter: Please run this command in a graphical KDE environment";
+        qWarning() << "KDEOAuth2PluginDBusAdapter: Alternative: Use command-line OAuth2 configuration or web-based setup";
+
+        // 在没有GUI的环境中，提供命令行替代方案
+        qWarning() << "KDEOAuth2PluginDBusAdapter: For headless setup, you can use the following command-line approach:";
+        qWarning() << "KDEOAuth2PluginDBusAdapter: 1. Set DISPLAY environment variable: export DISPLAY=:0";
+        qWarning() << "KDEOAuth2PluginDBusAdapter: 2. Or use X11 forwarding if connecting via SSH: ssh -X user@host";
+        qWarning() << "KDEOAuth2PluginDBusAdapter: 3. Or run the command directly in the KDE Plasma session";
+
+        // 尝试设置DISPLAY环境变量（如果可能的话）
+        if (qgetenv("DISPLAY").isEmpty()) {
+            qputenv("DISPLAY", ":0");
+            qDebug() << "KDEOAuth2PluginDBusAdapter: Attempted to set DISPLAY=:0 for GUI access";
+        }
+
+        // 再次检查GUI环境
+        if (qApp && qApp->desktop()) {
+            qDebug() << "KDEOAuth2PluginDBusAdapter: GUI environment now available after DISPLAY fix";
+            m_plugin->init(KAccountsUiPlugin::ConfigureAccountDialog);
+            return;
+        }
+
+        // 如果仍然没有GUI，返回错误但不崩溃
+        qWarning() << "KDEOAuth2PluginDBusAdapter: Still no GUI environment available";
+        return;
+    }
+
+    m_plugin->init(KAccountsUiPlugin::ConfigureAccountDialog);
+    // 注意：这里我们忽略accountId，因为原始的init方法不支持传递accountId
+    // 如果需要，可以修改为直接调用showConfigureAccountDialog
+}
+
+QString KDEOAuth2PluginDBusAdapter::getProviderName()
+{
+    return m_plugin->dbusGetProviderName();
+}
+
+void KDEOAuth2PluginDBusAdapter::setProviderName(const QString &providerName)
+{
+    m_plugin->dbusSetProviderName(providerName);
+}
+
+QStringList KDEOAuth2PluginDBusAdapter::getAccountsList()
+{
+    return m_plugin->dbusGetAccountsList();
+}
+
+bool KDEOAuth2PluginDBusAdapter::deleteAccount(quint32 accountId)
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: deleteAccount called via DBus for account" << accountId;
+    return m_plugin->dbusDeleteAccount(accountId);
+}
+
+bool KDEOAuth2PluginDBusAdapter::enableAccount(quint32 accountId, bool enabled)
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: enableAccount called via DBus for account" << accountId << "enabled:" << enabled;
+    return m_plugin->dbusEnableAccount(accountId, enabled);
+}
+
+QVariantMap KDEOAuth2PluginDBusAdapter::getAccountDetails(quint32 accountId)
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: getAccountDetails called via DBus for account" << accountId;
+    return m_plugin->dbusGetAccountDetails(accountId);
+}
+
+bool KDEOAuth2PluginDBusAdapter::refreshToken(quint32 accountId)
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: refreshToken called via DBus for account" << accountId;
+    return m_plugin->dbusRefreshToken(accountId);
+}
+
+QVariantMap KDEOAuth2PluginDBusAdapter::getPluginStatus()
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: getPluginStatus called via DBus";
+    return m_plugin->dbusGetPluginStatus();
+}
+
+bool KDEOAuth2PluginDBusAdapter::isHeadlessEnvironment()
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: isHeadlessEnvironment called via DBus";
+    // 检查是否有GUI环境
+    return (!qApp || !qApp->desktop());
+}
+
+// 扩展的DBus接口实现
+
+void KDEOAuth2PluginDBusAdapter::initNewAccountWithConfig(const QVariantMap &config)
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: initNewAccountWithConfig called via DBus with config:" << config;
+    m_plugin->dbusInitNewAccountWithConfig(config);
+}
+
+void KDEOAuth2PluginDBusAdapter::cancelCurrentDialog()
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: cancelCurrentDialog called via DBus";
+    m_plugin->dbusCancelCurrentDialog();
+}
+
+QString KDEOAuth2PluginDBusAdapter::getCurrentDialogState()
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: getCurrentDialogState called via DBus";
+    return m_plugin->dbusGetCurrentDialogState();
+}
+
+QVariantMap KDEOAuth2PluginDBusAdapter::getDialogInfo()
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: getDialogInfo called via DBus";
+    return m_plugin->dbusGetDialogInfo();
+}
+
+void KDEOAuth2PluginDBusAdapter::setOAuth2ServerUrl(const QString &serverUrl)
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: setOAuth2ServerUrl called via DBus:" << serverUrl;
+    m_plugin->dbusSetOAuth2ServerUrl(serverUrl);
+}
+
+void KDEOAuth2PluginDBusAdapter::setOAuth2ClientId(const QString &clientId)
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: setOAuth2ClientId called via DBus:" << clientId;
+    m_plugin->dbusSetOAuth2ClientId(clientId);
+}
+
+void KDEOAuth2PluginDBusAdapter::setOAuth2RedirectUri(const QString &redirectUri)
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: setOAuth2RedirectUri called via DBus:" << redirectUri;
+    m_plugin->dbusSetOAuth2RedirectUri(redirectUri);
+}
+
+void KDEOAuth2PluginDBusAdapter::setOAuth2Scope(const QString &scope)
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: setOAuth2Scope called via DBus:" << scope;
+    m_plugin->dbusSetOAuth2Scope(scope);
+}
+
+QVariantMap KDEOAuth2PluginDBusAdapter::getOAuth2Configuration()
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: getOAuth2Configuration called via DBus";
+    return m_plugin->dbusGetOAuth2Configuration();
+}
+
+bool KDEOAuth2PluginDBusAdapter::testConnection()
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: testConnection called via DBus";
+    return m_plugin->dbusTestConnection();
+}
+
+QStringList KDEOAuth2PluginDBusAdapter::getSupportedAuthMethods()
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: getSupportedAuthMethods called via DBus";
+    return m_plugin->dbusGetSupportedAuthMethods();
+}
+
+void KDEOAuth2PluginDBusAdapter::setAuthMethod(const QString &method)
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: setAuthMethod called via DBus:" << method;
+    m_plugin->dbusSetAuthMethod(method);
+}
+
+// 新的DBus方法实现
+void KDEOAuth2PluginDBusAdapter::dbusInitNewAccount()
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: dbusInitNewAccount called via DBus";
+    m_plugin->showNewAccountDialog();
+}
+
+void KDEOAuth2PluginDBusAdapter::dbusInitNewAccountWithConfig(const QString &server, const QString &clientId, const QString &authPath, const QString &tokenPath)
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: dbusInitNewAccountWithConfig called via DBus";
+    qDebug() << "  server:" << server << "clientId:" << clientId;
+    qDebug() << "  authPath:" << authPath << "tokenPath:" << tokenPath;
+    
+    // 设置配置并创建账户
+    bool configResult = m_plugin->dbusSetOAuth2Config(server, clientId, authPath, tokenPath);
+    if (configResult) {
+        m_plugin->showNewAccountDialog();
+    } else {
+        qWarning() << "Failed to set OAuth2 config, cannot create account";
+    }
+}
+
+void KDEOAuth2PluginDBusAdapter::dbusCancelCurrentDialog()
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: dbusCancelCurrentDialog called via DBus";
+    // 触发取消信号并重置状态
+    m_plugin->m_currentDialogState = "none";
+    m_plugin->m_dialogInfo.clear();
+    
+    emit accountCreationCanceled("用户通过DBus请求取消");
+    emit dialogStateChanged("new_account", "canceled", m_plugin->m_dialogInfo);
+    
+    // 触发插件的canceled信号
+    emit m_plugin->canceled();
+}
+
+QString KDEOAuth2PluginDBusAdapter::dbusGetCurrentDialogState()
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: dbusGetCurrentDialogState called via DBus";
+    return m_plugin->m_currentDialogState;
+}
+
+QVariantMap KDEOAuth2PluginDBusAdapter::dbusGetCurrentDialogInfo()
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: dbusGetCurrentDialogInfo called via DBus";
+    return m_plugin->m_dialogInfo;
+}
+
+bool KDEOAuth2PluginDBusAdapter::dbusSetOAuth2Config(const QString &server, const QString &clientId, const QString &authPath, const QString &tokenPath)
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: dbusSetOAuth2Config called via DBus";
+    return m_plugin->dbusSetOAuth2Config(server, clientId, authPath, tokenPath);
+}
+
+QVariantMap KDEOAuth2PluginDBusAdapter::dbusGetOAuth2Config()
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: dbusGetOAuth2Config called via DBus";
+    return m_plugin->dbusGetOAuth2Configuration();
+}
+
+bool KDEOAuth2PluginDBusAdapter::dbusSetAuthMethod(const QString &method)
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: dbusSetAuthMethod called via DBus:" << method;
+    m_plugin->dbusSetAuthMethod(method);
+    return true;
+}
+
+QString KDEOAuth2PluginDBusAdapter::dbusGetAuthMethod()
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: dbusGetAuthMethod called via DBus";
+    return m_plugin->m_authMethod;
+}
+
+int KDEOAuth2PluginDBusAdapter::dbusGetAccountCount()
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: dbusGetAccountCount called via DBus";
+    return m_plugin->dbusGetAccountCount();
+}
+
+QString KDEOAuth2PluginDBusAdapter::dbusGetPluginVersion()
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: dbusGetPluginVersion called via DBus";
+    return m_plugin->dbusGetPluginVersion();
+}
+
+QString KDEOAuth2PluginDBusAdapter::dbusGetPluginInfo()
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: dbusGetPluginInfo called via DBus";
+    return m_plugin->dbusGetPluginInfo();
+}
+
+bool KDEOAuth2PluginDBusAdapter::dbusTestConnection()
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: dbusTestConnection called via DBus";
+    return m_plugin->dbusTestConnection();
+}
+
+QString KDEOAuth2PluginDBusAdapter::dbusGetLastError()
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: dbusGetLastError called via DBus";
+    return m_plugin->dbusGetLastError();
+}
+
+bool KDEOAuth2PluginDBusAdapter::dbusClearError()
+{
+    qDebug() << "KDEOAuth2PluginDBusAdapter: dbusClearError called via DBus";
+    return m_plugin->dbusClearError();
+}

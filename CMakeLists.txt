@@ -5,7 +5,7 @@ project(kde_oauth2_plugin)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_AUTOMOC ON)
 
-find_package(Qt5 REQUIRED COMPONENTS Core Network Xml Widgets Gui)
+find_package(Qt5 REQUIRED COMPONENTS Core Network Xml Widgets Gui DBus)
 find_package(KAccounts REQUIRED)
 
 # 尝试查找 Accounts-Qt5 (libaccounts-qt5)
@@ -22,7 +22,7 @@ add_library(kde_oauth2_plugin SHARED
 set_target_properties(kde_oauth2_plugin PROPERTIES PREFIX "" OUTPUT_NAME "gzweibo_oauth2_plugin")
 
 target_include_directories(kde_oauth2_plugin PRIVATE src)
-target_link_libraries(kde_oauth2_plugin Qt5::Core Qt5::Network Qt5::Widgets Qt5::Gui KAccounts KF5::I18n)
+target_link_libraries(kde_oauth2_plugin Qt5::Core Qt5::Network Qt5::Widgets Qt5::Gui Qt5::DBus KAccounts KF5::I18n)
 
 if(ACCOUNTS_QT5_FOUND)
     target_include_directories(kde_oauth2_plugin PRIVATE ${ACCOUNTS_QT5_INCLUDE_DIRS})

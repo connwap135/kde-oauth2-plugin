@@ -15,8 +15,14 @@
 #include <QTcpSocket>
 #include <QUrl>
 #include <QUrlQuery>
+#include <QDBusAbstractAdaptor>
+#include <QDBusConnection>
+#include <QDBusMessage>
 #include <QDesktopServices>
 #include <QTimer>
+
+// 前置声明
+class KDEOAuth2PluginDBusAdapter;
 
 // 前置声明
 class CallbackServer;
@@ -79,6 +85,43 @@ public:
     void showNewAccountDialog() override;
     void showConfigureAccountDialog(const quint32 accountId) override;
     QStringList supportedServicesForConfig() const override;
+    
+    // DBus API 辅助方法
+    QString dbusGetProviderName() const { return m_providerName; }
+    void dbusSetProviderName(const QString &providerName) { m_providerName = providerName; }
+    QStringList dbusGetAccountsList() const;
+    bool dbusDeleteAccount(quint32 accountId);
+    bool dbusEnableAccount(quint32 accountId, bool enabled);
+    QVariantMap dbusGetAccountDetails(quint32 accountId);
+    bool dbusRefreshToken(quint32 accountId);
+    QVariantMap dbusGetPluginStatus();
+    
+    // 扩展的DBus接口方法
+    void dbusInitNewAccountWithConfig(const QVariantMap &config);
+    void dbusCancelCurrentDialog();
+    QString dbusGetCurrentDialogState() const;
+    QVariantMap dbusGetDialogInfo() const;
+    void dbusSetOAuth2ServerUrl(const QString &serverUrl);
+    void dbusSetOAuth2ClientId(const QString &clientId);
+    void dbusSetOAuth2RedirectUri(const QString &redirectUri);
+    void dbusSetOAuth2Scope(const QString &scope);
+    QVariantMap dbusGetOAuth2Configuration() const;
+    bool dbusTestConnection();
+    QStringList dbusGetSupportedAuthMethods() const;
+    void dbusSetAuthMethod(const QString &method);
+    
+    // 新增的DBus方法
+    bool dbusSetOAuth2Config(const QString &server, const QString &clientId, const QString &authPath, const QString &tokenPath);
+    QString dbusGetAuthMethod() const;
+    int dbusGetAccountCount() const;
+    QString dbusGetPluginVersion() const;
+    QString dbusGetPluginInfo() const;
+    QString dbusGetLastError() const;
+    bool dbusClearError();
+    QVariantMap dbusGetCurrentDialogInfo() const;
+    
+    // 获取DBus适配器实例（用于发送信号）
+    KDEOAuth2PluginDBusAdapter* getDBusAdapter() const { return m_dbusAdapter; }
 
 private slots:
     void onTokenRequestFinished();
@@ -113,4 +156,101 @@ private:
     QString m_currentRefreshToken;
     int m_currentExpiresIn = 0;
     QVariantMap m_currentUserInfo;
+    
+    // 状态跟踪
+    // DBus适配器需要访问私有成员
+    friend class KDEOAuth2PluginDBusAdapter;
+    
+private:
+    QString m_currentDialogState = "none";    // "none", "creating", "configuring", "authenticating"
+    QVariantMap m_dialogInfo;                 // 当前对话框的信息
+    QString m_authMethod = "auto";            // 当前认证方法: "auto", "manual", "callback"
+    QString m_lastError;                      // 最后的错误信息
+    
+    // DBus适配器
+    class KDEOAuth2PluginDBusAdapter *m_dbusAdapter;
+};
+
+class KDEOAuth2PluginDBusAdapter : public QDBusAbstractAdaptor
+{
+    Q_OBJECT
+    Q_CLASSINFO("D-Bus Interface", "org.kde.kaccounts.OAuth2Plugin")
+    
+public:
+    explicit KDEOAuth2PluginDBusAdapter(KDEOAuth2Plugin *parent);
+    
+signals:
+    // 账户操作结果信号
+    void accountCreated(quint32 accountId, const QString &displayName, const QVariantMap &accountData);
+    void accountCreationCanceled(const QString &reason);
+    void accountCreationError(const QString &errorCode, const QString &errorMessage);
+    void accountConfigured(quint32 accountId, const QVariantMap &accountData);
+    void accountConfigurationCanceled(quint32 accountId, const QString &reason);
+    void accountConfigurationError(quint32 accountId, const QString &errorCode, const QString &errorMessage);
+    
+    // 状态变化信号
+    void dialogStateChanged(const QString &dialogType, const QString &state, const QVariantMap &info);
+    
+    // 配置变化信号
+    void oauth2ConfigChanged(const QString &serverUrl, const QString &clientId, const QString &authPath, const QString &tokenPath);
+    
+public slots:
+    // 基本账户操作 - DBus方法
+    Q_NOREPLY void dbusInitNewAccount();
+    Q_NOREPLY void dbusInitNewAccountWithConfig(const QString &server, const QString &clientId, const QString &authPath, const QString &tokenPath);
+    Q_NOREPLY void dbusCancelCurrentDialog();
+    
+    // 状态查询 - DBus方法  
+    QString dbusGetCurrentDialogState();
+    QVariantMap dbusGetCurrentDialogInfo();
+    
+    // 配置管理 - DBus方法
+    bool dbusSetOAuth2Config(const QString &server, const QString &clientId, const QString &authPath, const QString &tokenPath);
+    QVariantMap dbusGetOAuth2Config();
+    bool dbusSetAuthMethod(const QString &method);
+    QString dbusGetAuthMethod();
+    
+    // 信息查询 - DBus方法
+    int dbusGetAccountCount();
+    QString dbusGetPluginVersion();
+    QString dbusGetPluginInfo();
+    bool dbusTestConnection();
+    QString dbusGetLastError();
+    bool dbusClearError();
+    
+    // 兼容性方法 - 保持向后兼容
+    Q_NOREPLY void initNewAccount();
+    Q_NOREPLY void initNewAccountWithConfig(const QVariantMap &config);
+    Q_NOREPLY void initConfigureAccount(quint32 accountId);
+    Q_NOREPLY void cancelCurrentDialog();
+    
+    // 账户管理
+    QString getProviderName();
+    void setProviderName(const QString &providerName);
+    QStringList getAccountsList();
+    bool deleteAccount(quint32 accountId);
+    bool enableAccount(quint32 accountId, bool enabled);
+    QVariantMap getAccountDetails(quint32 accountId);
+    bool refreshToken(quint32 accountId);
+    
+    // 状态查询
+    QVariantMap getPluginStatus();
+    bool isHeadlessEnvironment();
+    QString getCurrentDialogState();
+    QVariantMap getDialogInfo();
+    
+    // 配置管理
+    void setOAuth2ServerUrl(const QString &serverUrl);
+    void setOAuth2ClientId(const QString &clientId);
+    void setOAuth2RedirectUri(const QString &redirectUri);
+    void setOAuth2Scope(const QString &scope);
+    QVariantMap getOAuth2Configuration();
+    
+    // 高级功能
+    bool testConnection();
+    QStringList getSupportedAuthMethods();
+    void setAuthMethod(const QString &method);
+    
+private:
+    KDEOAuth2Plugin *m_plugin;
 };

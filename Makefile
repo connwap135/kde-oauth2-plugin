@@ -42,8 +42,8 @@ install-deb: deb
 # 卸载
 uninstall:
 	@echo "🗑️  卸载插件..."
-	@sudo rm -f /usr/lib/x86_64-linux-gnu/qt5/plugins/kaccounts/ui/kde_oauth2_plugin.so
-	@sudo rm -f /usr/lib/x86_64-linux-gnu/qt5/plugins/kaccounts/ui/kde_oauth2_plugin.so.json
+	@sudo rm -f /usr/lib/x86_64-linux-gnu/qt5/plugins/kaccounts/ui/weibo_oauth2_plugin.so
+	@sudo rm -f /usr/lib/x86_64-linux-gnu/qt5/plugins/kaccounts/ui/weibo_oauth2_plugin.so.json
 	@sudo rm -f /usr/share/accounts/providers/kde/gzweibo-oauth2.provider
 	@sudo rm -f /usr/share/accounts/services/kde/gzweibo-oauth2*.service
 	@sudo rm -f /usr/bin/kde-oauth2-token
@@ -63,7 +63,7 @@ test:
 status:
 	@echo "📋 检查安装状态..."
 	@echo "插件文件:"
-	@ls -la /usr/lib/x86_64-linux-gnu/qt5/plugins/kaccounts/ui/kde_oauth2_plugin.* 2>/dev/null || echo "未安装"
+	@ls -la /usr/lib/x86_64-linux-gnu/qt5/plugins/kaccounts/ui/weibo_oauth2_plugin.* 2>/dev/null || echo "未安装"
 	@echo "配置文件:"
 	@ls -la /usr/share/accounts/providers/kde/gzweibo-oauth2.provider 2>/dev/null || echo "未安装"
 	@ls -la /usr/share/accounts/services/kde/gzweibo-oauth2*.service 2>/dev/null || echo "未安装"
