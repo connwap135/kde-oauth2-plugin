@@ -5,8 +5,6 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AssemblyName>KDEOAuth2Client</AssemblyName>
-    <RootNamespace>KDEOAuth2Client</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>

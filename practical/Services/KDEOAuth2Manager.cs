@@ -106,12 +106,14 @@ namespace KDEOAuth2Client.Services
             }
             else
             {
-                // 查找最新的启用账户
+                // 查找有完整OAuth2设置的最新启用账户
                 var findCommand = connection.CreateCommand();
                 findCommand.CommandText = @"
-                    SELECT id FROM Accounts 
-                    WHERE provider = @provider AND enabled = 1 
-                    ORDER BY id DESC LIMIT 1";
+                    SELECT DISTINCT a.id FROM Accounts a
+                    INNER JOIN Settings s1 ON a.id = s1.account AND s1.service = 0 AND s1.key = 'access_token'
+                    INNER JOIN Settings s2 ON a.id = s2.account AND s2.service = 0 AND s2.key = 'server'
+                    WHERE a.provider = @provider AND a.enabled = 1 
+                    ORDER BY a.id DESC LIMIT 1";
                 findCommand.Parameters.AddWithValue("@provider", provider);
 
                 var result = await findCommand.ExecuteScalarAsync();
@@ -136,7 +138,7 @@ namespace KDEOAuth2Client.Services
             var settingsCommand = connection.CreateCommand();
             settingsCommand.CommandText = @"
                 SELECT key, value FROM Settings 
-                WHERE account = @accountId AND service IS NULL";
+                WHERE account = @accountId AND service = 0";
             settingsCommand.Parameters.AddWithValue("@accountId", actualAccountId);
 
             var credentials = new OAuth2Credentials
@@ -321,7 +323,7 @@ namespace KDEOAuth2Client.Services
                 var command = connection.CreateCommand();
                 command.CommandText = @"
                     SELECT value FROM Settings 
-                    WHERE account = @accountId AND key = 'token_created_at' AND service IS NULL";
+                    WHERE account = @accountId AND key = 'token_created_at' AND service = 0";
                 command.Parameters.AddWithValue("@accountId", accountId);
 
                 var result = command.ExecuteScalar();
@@ -417,7 +419,7 @@ namespace KDEOAuth2Client.Services
                     var timestampCommand = connection.CreateCommand();
                     timestampCommand.CommandText = @"
                         INSERT INTO Settings (account, service, key, type, value) 
-                        VALUES (@account, NULL, 'token_created_at', 'string', @value)";
+                        VALUES (@account, 0, 'token_created_at', 'string', @value)";
                     timestampCommand.Parameters.AddWithValue("@account", accountId);
                     timestampCommand.Parameters.AddWithValue("@value", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
                     await timestampCommand.ExecuteNonQueryAsync();
@@ -461,7 +463,7 @@ namespace KDEOAuth2Client.Services
 
                 // 删除现有设置
                 var deleteCommand = connection.CreateCommand();
-                deleteCommand.CommandText = "DELETE FROM Settings WHERE account = @accountId AND service IS NULL";
+                deleteCommand.CommandText = "DELETE FROM Settings WHERE account = @accountId AND service = 0";
                 deleteCommand.Parameters.AddWithValue("@accountId", accountId);
                 await deleteCommand.ExecuteNonQueryAsync();
 
@@ -611,7 +613,7 @@ namespace KDEOAuth2Client.Services
             {
                 // 检查设置是否存在
                 var checkCommand = connection.CreateCommand();
-                checkCommand.CommandText = "SELECT COUNT(*) FROM Settings WHERE account = @accountId AND key = @key AND service IS NULL";
+                checkCommand.CommandText = "SELECT COUNT(*) FROM Settings WHERE account = @accountId AND key = @key AND service = 0";
                 checkCommand.Parameters.AddWithValue("@accountId", accountId);
                 checkCommand.Parameters.AddWithValue("@key", key);
 
@@ -622,13 +624,13 @@ namespace KDEOAuth2Client.Services
                 {
                     // 更新现有设置
                     command = connection.CreateCommand();
-                    command.CommandText = "UPDATE Settings SET value = @value WHERE account = @accountId AND key = @key AND service IS NULL";
+                    command.CommandText = "UPDATE Settings SET value = @value WHERE account = @accountId AND key = @key AND service = 0";
                 }
                 else
                 {
                     // 插入新设置
                     command = connection.CreateCommand();
-                    command.CommandText = "INSERT INTO Settings (account, service, key, type, value) VALUES (@accountId, NULL, @key, 'string', @value)";
+                    command.CommandText = "INSERT INTO Settings (account, service, key, type, value) VALUES (@accountId, 0, @key, 'string', @value)";
                 }
 
                 command.Parameters.AddWithValue("@accountId", accountId);
@@ -669,7 +671,7 @@ namespace KDEOAuth2Client.Services
                 var command = connection.CreateCommand();
                 command.CommandText = @"
                     INSERT INTO Settings (account, service, key, type, value) 
-                    VALUES (@account, NULL, @key, 'string', @value)";
+                    VALUES (@account, 0, @key, 'string', @value)";
                 command.Parameters.AddWithValue("@account", accountId);
                 command.Parameters.AddWithValue("@key", setting.Key);
                 command.Parameters.AddWithValue("@value", setting.Value);

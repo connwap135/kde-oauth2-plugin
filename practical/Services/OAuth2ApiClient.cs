@@ -138,6 +138,7 @@ namespace KDEOAuth2Client.Services
                 var parameters = new Dictionary<string, string>
                 {
                     {"grant_type", "refresh_token"},
+                    {"access_token", accessToken},
                     {"refresh_token", refreshToken},
                     {"client_id", clientId}
                 };

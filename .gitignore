@@ -157,6 +157,33 @@ src/*_autogen/
 gzweibo-oauth2-plugin_*.deb
 custom-oauth2-plugin_*.deb
 
-## Final note
+## C# Project ignores
+# Binaries
+bin/
+obj/
+
+# User-specific files
+*.user
+*.suo
+*.cache
+
+# Visual Studio
+.vs/
+*.tmp
+*.log
+
+# NuGet
+packages/
+*.nupkg
+
+# Rider
+.idea/
+
+# Mono
+*.exe
+*.dll
+*.pdb
+
+# Final note
 # This .gitignore is designed for KDE/Qt development
 # Review before committing to ensure no important files are ignored

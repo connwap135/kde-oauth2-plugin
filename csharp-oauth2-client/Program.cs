@@ -383,7 +383,7 @@ namespace KDEOAuth2Client
             }
 
             using var apiClient = new OAuth2ApiClient(credentials.Server!);
-            var response = await apiClient.RefreshTokenAsync(credentials.RefreshToken!, credentials.ClientId ?? "");
+            var response = await apiClient.RefreshTokenAsync(credentials.AccessToken!, credentials.RefreshToken!, credentials.ClientId ?? "");
 
             if (response.Success && response.Data != null)
             {
@@ -757,18 +757,18 @@ namespace KDEOAuth2Client
             }
         }
 
-        static async Task CheckSingleTokenStatus(KDEOAuth2Manager manager, int accountId, string displayName)
+        static async Task CheckSingleTokenStatus(KDEOAuth2Manager manager, int accountId, string? displayName)
         {
             try
             {
                 var credentials = await manager.GetCredentialsAsync(accountId);
                 if (credentials == null)
                 {
-                    Console.WriteLine($"❌ 账户 {accountId} ({displayName}) - 无法获取凭据");
+                    Console.WriteLine($"❌ 账户 {accountId} ({displayName ?? "未知"}) - 无法获取凭据");
                     return;
                 }
 
-                Console.WriteLine($"🔐 账户 {accountId}: {displayName}");
+                Console.WriteLine($"🔐 账户 {accountId}: {displayName ?? "未知"}");
 
                 // 检查基本信息
                 Console.WriteLine($"   服务器: {credentials.Server ?? "未设置"}");
